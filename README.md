@@ -16,11 +16,15 @@
 
 ---
 
-## Demo Walkthrough
+## Demo Video
 
-Watch the complete demonstration video in [`docs/demo.mp4`](docs/demo.mp4) showing Antigravity OS running on VMware Workstation (standard SATA hard drive, 256 MB RAM):
-
-https://raw.githubusercontent.com/priyanr/AGOS/main/docs/demo.mp4
+<p align="center">
+  <a href="https://youtu.be/e1AXccxDFdU" target="_blank">
+    <img src="https://img.youtube.com/vi/e1AXccxDFdU/maxresdefault.jpg" alt="Antigravity OS Demo Video" width="800" style="max-width: 100%; border-radius: 8px;" />
+  </a>
+  <br />
+  <em>▶️ <b><a href="https://youtu.be/e1AXccxDFdU">Watch the full Antigravity OS demo on YouTube</a></b> (VMware Workstation SATA installation, GW-BASIC, Paratrooper, Preemptive Multitasking)</em>
+</p>
 
 > **Demo Timeline**:
 > 1. **VMware Setup** (00:00): Stock VM creation with 8 GB SATA HDD & 256 MB RAM without custom tweaks.
@@ -31,6 +35,8 @@ https://raw.githubusercontent.com/priyanr/AGOS/main/docs/demo.mp4
 > 6. **GW-BASIC** (01:05): Running Microsoft GW-BASIC (1983), loading and executing `hello.bas`.
 > 7. **Paratrooper (1982)** (01:28): CGA arcade gameplay with smooth linear framebuffer rendering.
 > 8. **Kernel Multitasking** (01:58): Spawning preemptive background worker threads concurrent with interactive shell.
+>
+> *(An offline copy is also available in the repository at [`docs/demo.mp4`](docs/demo.mp4))*
 
 ---
 
