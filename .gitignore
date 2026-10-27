@@ -1,0 +1,18 @@
+# Build binaries and disk images
+*.iso
+*.img
+*.elf
+*.o
+*.bin.tmp
+
+# Build directories
+iso_root/
+mnt_ext4/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE / Tool configs
+.claude/
+.vscode/
