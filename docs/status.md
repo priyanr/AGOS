@@ -46,6 +46,13 @@
 - **Disk Controller**: Supports both **SATA (AHCI)** (`sda`) and **IDE** (`hda`).
 - **Triple Fault Resolution**: Resolved by partitioning disk with a 64MB FAT32 boot partition (`sda1`) hosting Limine Stage 2/3 BIOS bootloader files, and deploying the Linux ext4 root filesystem to `sda2`. Standalone hard disk boot directly from `.vmdk` verified.
 
+### 2.3 Real Hardware: Raspberry Pi 3 Model B (AArch64)
+- **Architecture**: AArch64 (ARMv8-A 64-bit).
+- **Physical Boot Chain**: VideoCore GPU loads `bootcode.bin` and `start.elf` from FAT32 partition, reads `config.txt` (`arm_64bit=1`, `hdmi_force_hotplug=1`, `hdmi_drive=2`, `config_hdmi_boost=4`), and loads `kernel8.img` to `0x80000`.
+- **Physical Display & Framebuffer**: Linear 1024x768 (32 BPP) framebuffer allocated via VideoCore Mailbox property tags; full HDMI video output physically verified on real Raspberry Pi 3 hardware.
+- **Audio**: VideoCore VCHIQ audio channel initialized in HDMI mode.
+- **Input**: Paratrooper arcade game running with rate-limited Gamepad HAL and BLE report decoding scaffolding.
+
 ---
 
 ## 3. Performance & Stability Milestones

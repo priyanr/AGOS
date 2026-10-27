@@ -179,28 +179,50 @@ Antigravity OS includes automated multi-architecture build scripts:
 
 ### 5.2 Output Artifacts Structure
 
-Generated outputs are strictly compartmentalized in `output/<arch>`:
+Generated outputs are strictly compartmentalized in `output/<arch>`. For Raspberry Pi, all required VideoCore GPU bootloader files are automatically included:
 
 ```
 output/
 ├── aarch64/
-│   ├── antigravity-rpi.img  # 64 MB flashable SD card disk image (MBR + FAT32 boot partition)
-│   ├── config.txt           # GPU firmware configuration (arm_64bit=1, enable_uart=1)
-│   ├── kernel8.img          # 49 KB raw binary loaded by VideoCore at 0x80000
-│   └── kernel8.elf          # 319 KB AArch64 ELF with debug symbols
+│   ├── antigravity-rpi.img      # 64 MB flashable SD card disk image (MBR + FAT32 with all firmware)
+│   ├── bootcode.bin             # 52 KB VideoCore GPU Stage 2 bootloader
+│   ├── start.elf                # 2.9 MB VideoCore GPU OS firmware
+│   ├── fixup.dat                # 7.3 KB GPU/ARM SDRAM memory splitter
+│   ├── bcm2710-rpi-3-b.dtb      # Device tree for Raspberry Pi 3 Model B
+│   ├── bcm2710-rpi-3-b-plus.dtb # Device tree for Raspberry Pi 3 Model B+
+│   ├── config.txt               # GPU firmware config (arm_64bit=1, HDMI boost, UART)
+│   ├── kernel8.img              # 49 KB raw binary loaded by VideoCore at 0x80000
+│   └── kernel8.elf              # 319 KB AArch64 ELF with debug symbols
 │
 └── x86_64/
-    ├── antigravity-os.iso   # 5.2 MB hybrid BIOS/UEFI Limine bootable ISO
-    ├── disk.img             # 32 MB ext4 filesystem image
-    └── kernel.elf           # 680 KB x86_64 ELF kernel binary
+    ├── antigravity-os.iso       # 5.2 MB hybrid BIOS/UEFI Limine bootable ISO
+    ├── disk.img                 # 32 MB ext4 filesystem image
+    └── kernel.elf               # 680 KB x86_64 ELF kernel binary
 ```
 
 ---
 
-## 6. Testing in QEMU & Flashing Physical Media
+## 6. Real Hardware Deployment & Verification
 
-### 6.1 Testing Raspberry Pi in QEMU
+### 6.1 Verified Hardware Target: Raspberry Pi 3 Model B
+> [!NOTE]
+> Bare-metal boot has been **physically verified on a real Raspberry Pi 3 Model B** over HDMI with full video output and green ACT activity light.
 
+### 6.2 Raspberry Pi Hardware Boot Chain Note
+Unlike x86 PCs, the Raspberry Pi's ARM CPU cannot boot from cold power. The Broadcom VideoCore GPU boot ROM must first load `bootcode.bin` and `start.elf`. Without these files on the FAT32 partition, the green ACT LED remains dark and the board will not power the ARM CPU or HDMI controller.
+
+The automated build script (`build.sh aarch64`) automatically fetches and packages these required files into both `output/aarch64/` and `antigravity-rpi.img`.
+
+### 6.3 Flashing to Physical MicroSD Card
+
+To run on a real Raspberry Pi 3:
+* **Option A (Direct File Copy)**: If you already have a FAT32-formatted SD card, simply copy all files from `output/aarch64/` to the root of the card.
+* **Option B (Raw Disk Flash)**: Flash `output/aarch64/antigravity-rpi.img` using **Raspberry Pi Imager** ("Use Custom Image"), **Rufus**, or `dd`:
+   ```bash
+   sudo dd if=output/aarch64/antigravity-rpi.img of=/dev/sdX bs=4M status=progress conv=fsync
+   ```
+
+### 6.4 Testing in QEMU Emulation
 * **Direct Kernel Execution**:
   ```bash
   make ARCH=aarch64 run
@@ -209,16 +231,6 @@ output/
   ```bash
   make ARCH=aarch64 run-sd
   ```
-
-### 6.2 Flashing to Physical MicroSD Card
-
-To run on a real Raspberry Pi 3 or Pi 4:
-1. Insert a MicroSD card into your host machine.
-2. Flash `output/aarch64/antigravity-rpi.img` using **Raspberry Pi Imager** ("Use Custom Image"), **Rufus**, or `dd`:
-   ```bash
-   sudo dd if=output/aarch64/antigravity-rpi.img of=/dev/sdX bs=4M status=progress conv=fsync
-   ```
-3. Insert the card into your Raspberry Pi, connect HDMI and power on.
 
 ---
 

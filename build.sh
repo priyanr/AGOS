@@ -25,7 +25,7 @@ case "$ARCH_ARG" in
     *)
         echo "Usage: $0 [x86_64 | aarch64 | all | clean]"
         echo "  x86_64  : Builds hybrid ISO and ext4 disk image for PC (Limine)"
-        echo "  aarch64 : Builds kernel8.img and bootable SD image for Raspberry Pi 3/4"
+        echo "  aarch64 : Builds kernel8.img, firmware files, and bootable SD image for Raspberry Pi 3/4"
         echo "  all     : Builds both architectures"
         exit 1
         ;;
@@ -40,6 +40,7 @@ install_dependencies() {
     command -v make >/dev/null 2>&1 || missing_pkgs+=("build-essential")
     command -v parted >/dev/null 2>&1 || missing_pkgs+=("parted")
     command -v mcopy >/dev/null 2>&1 || missing_pkgs+=("mtools")
+    command -v curl >/dev/null 2>&1 || missing_pkgs+=("curl")
 
     if [ "$arch" = "x86_64" ] || [ "$arch" = "all" ]; then
         command -v gcc >/dev/null 2>&1 || missing_pkgs+=("gcc")
@@ -73,6 +74,21 @@ install_dependencies() {
     fi
 }
 
+# Ensure official Raspberry Pi 3 GPU bootloader firmware files exist
+ensure_rpi_firmware() {
+    local fw_dir="firmware-rpi"
+    mkdir -p "$fw_dir"
+    local base_url="https://raw.githubusercontent.com/raspberrypi/firmware/master/boot"
+    local files=("bootcode.bin" "start.elf" "fixup.dat" "bcm2710-rpi-3-b.dtb" "bcm2710-rpi-3-b-plus.dtb")
+
+    for f in "${files[@]}"; do
+        if [ ! -f "$fw_dir/$f" ]; then
+            echo " [FIRMWARE] Downloading Raspberry Pi boot file: $f..."
+            curl -sL "$base_url/$f" -o "$fw_dir/$f" || wget -q "$base_url/$f" -O "$fw_dir/$f"
+        fi
+    done
+}
+
 build_architecture() {
     local arch="$1"
     echo ""
@@ -80,6 +96,10 @@ build_architecture() {
     echo " Building Antigravity OS for architecture: ${arch}"
     echo " Output directory: output/${arch}"
     echo "=========================================================="
+
+    if [ "$arch" = "aarch64" ]; then
+        ensure_rpi_firmware
+    fi
 
     make ARCH="${arch}" all
 

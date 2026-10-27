@@ -136,7 +136,10 @@ else ifeq ($(ARCH),aarch64)
 		@printf "arm_64bit=1\nkernel=kernel8.img\nhdmi_force_hotplug=1\nhdmi_drive=2\nconfig_hdmi_boost=4\ndisable_overscan=1\nenable_uart=1\nuart_2ndstage=1\n" > $(OUTPUT_DIR)/config.txt
 		@mcopy -i $@@@1048576 $(KERNEL_IMG) ::kernel8.img
 		@mcopy -i $@@@1048576 $(OUTPUT_DIR)/config.txt ::config.txt
-		@if [ -d firmware-rpi ]; then mcopy -i $@@@1048576 firmware-rpi/* :: ; fi
+		@if [ -d firmware-rpi ]; then \
+			mcopy -i $@@@1048576 firmware-rpi/* :: ; \
+			cp -f firmware-rpi/* $(OUTPUT_DIR)/ ; \
+		fi
 		@echo " [OK] $@ created."
 
     run: $(KERNEL_IMG)
