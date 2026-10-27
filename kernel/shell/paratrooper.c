@@ -6,6 +6,7 @@
 #include <hal/timer.h>
 #include <hal/serial.h>
 #include <drivers/keyboard.h>
+#include <drivers/gamepad.h>
 #include <sched/sched.h>
 #include <shell/paratrooper.h>
 
@@ -282,7 +283,55 @@ static int map_char_to_bios_key(char c) {
     return -1;
 }
 
+static uint32_t last_gp_buttons = 0;
+static uint64_t last_gp_repeat = 0;
+
+static void poll_gamepad_input(void) {
+    if (!gamepad_is_connected()) return;
+
+    gamepad_state_t gp;
+    gamepad_get_state(&gp);
+
+    uint64_t now = timer_get_ticks();
+    bool repeat_allowed = (now - last_gp_repeat >= 100);
+
+    if (gp.buttons & (GAMEPAD_BTN_VIEW | GAMEPAD_BTN_GUIDE)) {
+        game_quit = true;
+        push_key(0x0000);
+        return;
+    }
+
+    bool btn_a_pressed = (gp.buttons & GAMEPAD_BTN_A) && !(last_gp_buttons & GAMEPAD_BTN_A);
+    bool btn_menu_pressed = (gp.buttons & GAMEPAD_BTN_MENU) && !(last_gp_buttons & GAMEPAD_BTN_MENU);
+
+    if (btn_menu_pressed || (in_attract && btn_a_pressed)) {
+        push_key(0x3920); // Start / Enter
+    }
+
+    bool go_left = (gp.buttons & GAMEPAD_DPAD_LEFT) || gp.stick_lx < -12000;
+    bool go_right = (gp.buttons & GAMEPAD_DPAD_RIGHT) || gp.stick_lx > 12000;
+    bool fire = (gp.buttons & (GAMEPAD_BTN_A | GAMEPAD_BTN_RB | GAMEPAD_DPAD_UP)) || gp.trigger_r > 200;
+
+    if (repeat_allowed) {
+        if (go_left) {
+            push_key(0x4B34); // Turn left
+            last_gp_repeat = now;
+        } else if (go_right) {
+            push_key(0x4D36); // Turn right
+            last_gp_repeat = now;
+        }
+
+        if (fire && !in_attract) {
+            push_key(0x4838); // Fire
+            last_gp_repeat = now;
+        }
+    }
+
+    last_gp_buttons = gp.buttons;
+}
+
 static void poll_input(void) {
+    poll_gamepad_input();
     while (keyboard_has_char()) {
         char c = keyboard_getchar();
         if (c == 27 || c == 'q' || c == 'Q') {
