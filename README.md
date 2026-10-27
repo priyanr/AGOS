@@ -16,6 +16,24 @@
 
 ---
 
+## Demo Walkthrough
+
+Watch the complete demonstration video in [`docs/demo.mp4`](docs/demo.mp4) showing Antigravity OS running on VMware Workstation (standard SATA hard drive, 256 MB RAM):
+
+https://raw.githubusercontent.com/priyanr/AGOS/main/docs/demo.mp4
+
+> **Demo Timeline**:
+> 1. **VMware Setup** (00:00): Stock VM creation with 8 GB SATA HDD & 256 MB RAM without custom tweaks.
+> 2. **Live ISO Boot & Installer** (00:09): Live boot via Limine, checking raw disk with `fdisk -l`, and running `install sda`.
+> 3. **Dual-Partition Deployment**: Automated FAT32 boot partition + ext4 root partition formatting and file deployment.
+> 4. **Standalone SATA Boot** (00:45): Direct boot from SATA hard drive (`sda2`) with ext4 root filesystem mounted.
+> 5. **Ext4 Traversal**: Directory and file inspection (`ls`, `cd bin`, `ls`).
+> 6. **GW-BASIC** (01:05): Running Microsoft GW-BASIC (1983), loading and executing `hello.bas`.
+> 7. **Paratrooper (1982)** (01:28): CGA arcade gameplay with smooth linear framebuffer rendering.
+> 8. **Kernel Multitasking** (01:58): Spawning preemptive background worker threads concurrent with interactive shell.
+
+---
+
 ## Highlights
 
 - ⚡ **x86_64 Freestanding Kernel**: Written in clean, modular C11 (`-ffreestanding -mno-red-zone -nostdlib -O2`) with under 150 lines of total assembly.
