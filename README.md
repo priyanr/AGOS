@@ -69,6 +69,15 @@ For comprehensive architectural design, subsystem layouts, and memory maps, see 
 
 ---
 
+### Execution Mode & Binary Format Notes
+
+> [!NOTE]
+> - **Privilege Level**: Currently, **no User Mode (Ring 3) is implemented**. All threads, the interactive shell, and built-in runtimes (GW-BASIC, Paratrooper, utilities) execute in **Kernel Mode (Ring 0)** with direct hardware access.
+> - **Kernel Binary**: The kernel itself boots as a freestanding 64-bit ELF executable (`kernel.elf`) loaded via the Limine boot protocol. Built-in programs are linked directly into the kernel image.
+> - **ELF Userland Loader (Roadmap)**: Loading standalone ELF64 user binaries from ext4 storage into separate virtual page tables with Ring 3 privilege transitions (`syscall`/`sysret`) is currently under development on the roadmap.
+
+---
+
 ## Quickstart: Running with QEMU
 
 ### 1. Boot Live ISO Environment
