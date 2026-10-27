@@ -23,6 +23,15 @@ char keyboard_getchar(void) {
     return 0;
 }
 
+// Called from exc_unhandled in boot.S for any exception other than an EL1 IRQ; never returns
+void exception_report(uint64_t esr, uint64_t elr, uint64_t far) {
+    char line[96];
+    snprintf(line, sizeof(line), "!! CPU EXCEPTION  ESR=0x%08X  ELR=0x%08X  FAR=0x%08X",
+             (unsigned int)esr, (unsigned int)elr, (unsigned int)far);
+    printk("\n%s\n", line);
+    fb_draw_string_at(0, 5, line, 0x00FFFFFF, 0x00B91C1C); // White on red, below the BLE debug lines
+}
+
 // 16-byte aligned mailbox request buffer
 static volatile uint32_t __attribute__((aligned(16))) mbox_buf[36];
 

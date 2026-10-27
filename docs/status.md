@@ -52,7 +52,8 @@
 - **Physical Display & Framebuffer**: Linear 1024x768 (32 BPP) framebuffer allocated via VideoCore Mailbox property tags; full HDMI video output physically verified on real Raspberry Pi 3 hardware.
 - **Audio**: VideoCore VCHIQ audio channel initialized in HDMI mode.
 - **Input & Gamepad**: Paratrooper arcade game running with keyboard/serial input and Gamepad HAL.
-- **Bluetooth BLE Subsystem**: **Scaffolding Only (Non-Functional on Hardware)**. Upper-layer HID report parser and Gamepad HAL state structures exist, but the physical radio hardware pipeline (PL011 UART to BCM43438, patchram firmware upload, HCI scan loop, and SMP AES-128 pairing) is not yet implemented.
+- **Bluetooth BLE Subsystem** (verified on Pi 3B rev `0xA02082`, 2026-10-27): BCM43438 powered via mailbox BT_ON (expander GPIO 128) with 32 kHz LPO on GPIO 43, PL011 on GPIO 32/33 at 115200, patchram firmware upload, LE scan, Xbox controller detection (HID UUID 0x1812 / gamepad appearance 0x03C4) and LE connection all work. UART RX is IRQ-driven into a 4 KB ring (EL1 vector table in `boot.S`); unhandled CPU exceptions now print ESR/ELR/FAR on screen. Console moved to the mini-UART (GPIO 14/15).
+- **Open (BLE)**: SMP pairing, GATT discovery / HID notification enable, and ACL report routing are not implemented, so the controller connects but sends no input. Pairing keys are not persisted. RX byte counter looked unexpectedly high (20 M) on one run; not yet investigated.
 
 ---
 

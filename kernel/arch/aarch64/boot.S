@@ -56,6 +56,11 @@ el1_entry:
     ldr     x0, =_start
     mov     sp, x0
 
+    // Install exception vectors (IRQs stay masked until a driver unmasks them)
+    ldr     x0, =vectors
+    msr     vbar_el1, x0
+    isb
+
     // Zero out BSS section
     ldr     x1, =__bss_start
     ldr     x2, =__bss_end
@@ -75,3 +80,50 @@ el1_entry:
 halt_loop:
     wfe
     b       halt_loop
+
+// EL1 vector table: 16 entries of 0x80 bytes. Only "current EL, SPx" IRQ is serviced;
+// every other exception prints ESR/ELR/FAR and halts instead of hanging silently.
+.section ".text"
+.balign 2048
+vectors:
+    .rept 5                 // EL1t sync/irq/fiq/serror, EL1h sync
+    .balign 0x80
+    b       exc_unhandled
+    .endr
+    .balign 0x80            // EL1h IRQ
+    b       irq_entry
+    .rept 10                // EL1h fiq/serror, lower EL entries
+    .balign 0x80
+    b       exc_unhandled
+    .endr
+
+exc_unhandled:
+    mrs     x0, esr_el1
+    mrs     x1, elr_el1
+    mrs     x2, far_el1
+    bl      exception_report
+1:  wfe
+    b       1b
+
+// UART0 (Bluetooth) RX IRQ: drain the PL011 FIFO into bt_rx_ring (4096 bytes).
+// Reading DR until the FIFO is empty clears the RX and RX-timeout interrupts.
+irq_entry:
+    stp     x0, x1, [sp, #-48]!
+    stp     x2, x3, [sp, #16]
+    str     x4, [sp, #32]
+    ldr     x0, =0x3F201000         // UART0 base
+    ldr     x1, =bt_rx_ring
+    ldr     x2, =bt_rx_head
+    ldr     w3, [x2]
+2:  ldr     w4, [x0, #0x18]         // FR
+    tbnz    w4, #4, 3f              // RXFE: FIFO empty
+    ldr     w4, [x0]                // DR
+    strb    w4, [x1, w3, uxtw]
+    add     w3, w3, #1
+    and     w3, w3, #4095
+    b       2b
+3:  str     w3, [x2]
+    ldr     x4, [sp, #32]
+    ldp     x2, x3, [sp, #16]
+    ldp     x0, x1, [sp], #48
+    eret

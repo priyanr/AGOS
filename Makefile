@@ -85,7 +85,7 @@ else ifeq ($(ARCH),aarch64)
     OBJCOPY = $(CROSS_COMPILE)objcopy
 
     CFLAGS = -Wall -Wextra -std=gnu11 -ffreestanding -fno-stack-protector \
-             -fno-stack-check -fno-lto -fno-pie -fno-pic \
+             -fno-stack-check -fno-lto -fno-pie -fno-pic -mstrict-align \
              -Iinclude -I. -O2 -g
 
     LDFLAGS = -nostdlib -static -no-pie -T kernel/arch/aarch64/linker.ld
