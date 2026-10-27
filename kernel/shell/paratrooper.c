@@ -363,7 +363,11 @@ static void wait_one_tick(void) {
     while (timer_get_ticks() - start_ms < 55) {
         poll_input();
         sched_yield();
+#if defined(__x86_64__) || defined(_M_X64)
         __asm__ volatile ("pause");
+#elif defined(__aarch64__)
+        __asm__ volatile ("yield");
+#endif
     }
     ticks++;
 }

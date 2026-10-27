@@ -8,6 +8,7 @@
 # Build directories
 iso_root/
 mnt_ext4/
+output/
 
 # Python cache
 __pycache__/
