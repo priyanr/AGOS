@@ -135,7 +135,7 @@ else ifeq ($(ARCH),aarch64)
 		@parted -s $@ mkpart primary fat32 2048s 100%
 		@parted -s $@ set 1 boot on
 		@mformat -i $@@@1048576 -F ::
-		@printf "arm_64bit=1\nkernel=kernel8.img\nhdmi_force_hotplug=1\nhdmi_drive=2\nconfig_hdmi_boost=4\ndisable_overscan=1\nenable_uart=1\nuart_2ndstage=1\n" > $(OUTPUT_DIR)/config.txt
+		@printf "arm_64bit=1\nkernel=kernel8.img\nhdmi_force_hotplug=1\nhdmi_drive=2\nconfig_hdmi_boost=4\ndisable_overscan=1\nenable_uart=1\nuart_2ndstage=1\ncore_freq=250\ninit_uart_clock=48000000\n" > $(OUTPUT_DIR)/config.txt
 		@mcopy -i $@@@1048576 $(KERNEL_IMG) ::kernel8.img
 		@mcopy -i $@@@1048576 $(OUTPUT_DIR)/config.txt ::config.txt
 		@if [ -d firmware-rpi ]; then \

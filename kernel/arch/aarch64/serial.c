@@ -1,6 +1,12 @@
 #include <hal/serial.h>
 #include <hal/aarch64/arm.h>
 
+// GPIO Registers
+#define GPIO_BASE       0x3F200000
+#define GPFSEL1         (GPIO_BASE + 0x04)
+#define GPPUD           (GPIO_BASE + 0x94)
+#define GPPUDCLK0       (GPIO_BASE + 0x98)
+
 // Raspberry Pi 3 Mini-UART (UART1 / AUX) registers for Serial Console (GPIO 14/15)
 #define AUX_ENABLES     0x3F215004
 #define AUX_MU_IO       0x3F215040
@@ -13,7 +19,20 @@
 #define AUX_MU_BAUD     0x3F215068
 
 void serial_init(void) {
-    // Enable Mini-UART peripheral
+    // 1. Configure GPIO 14 and 15 to ALT5 (Mini-UART TXD1/RXD1)
+    uint32_t r = mmio_read32(GPFSEL1);
+    r &= ~((7 << 12) | (7 << 15)); // Clear GPIO 14 (12..14) and 15 (15..17)
+    r |= ((2 << 12) | (2 << 15));  // Set ALT5 (0b010 = 2)
+    mmio_write32(GPFSEL1, r);
+
+    // Disable pull-up/down on GPIO 14 & 15
+    mmio_write32(GPPUD, 0);
+    arm_delay(150);
+    mmio_write32(GPPUDCLK0, (1 << 14) | (1 << 15));
+    arm_delay(150);
+    mmio_write32(GPPUDCLK0, 0);
+
+    // 2. Enable and configure Mini-UART
     mmio_write32(AUX_ENABLES, mmio_read32(AUX_ENABLES) | 1);
     mmio_write32(AUX_MU_CNTL, 0);       // Disable TX & RX while configuring
     mmio_write32(AUX_MU_IER, 0);        // Disable interrupts
