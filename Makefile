@@ -138,10 +138,10 @@ else ifeq ($(ARCH),aarch64)
 		@echo " [OK] $@ created."
 
     run: $(KERNEL_IMG)
-		qemu-system-aarch64 -M raspi3b -kernel $(KERNEL_IMG) -serial stdio
+		qemu-system-aarch64 -M raspi3 -kernel $(KERNEL_IMG) -serial null -serial stdio
 
     run-sd: $(SD_IMAGE)
-		qemu-system-aarch64 -M raspi3b -sd $(SD_IMAGE) -serial stdio
+		qemu-system-aarch64 -M raspi3 -sd $(SD_IMAGE) -serial null -serial stdio
 
 else
     $(error Unsupported architecture '$(ARCH)'. Supported: x86_64, aarch64)

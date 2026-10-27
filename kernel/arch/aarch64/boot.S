@@ -22,7 +22,9 @@ _start:
     b       el1_entry
 
 el3_entry:
-    // Configure EL3 and transition to EL2/EL1
+    // Don't trap FP/SIMD in EL3
+    msr     cptr_el3, xzr
+    // Configure EL3 and transition to EL2
     mov     x0, #(1 << 10)          // RW bit = AArch64 for EL2
     orr     x0, x0, #(1 << 0)       // NS bit = Non-Secure
     msr     scr_el3, x0
@@ -33,6 +35,8 @@ el3_entry:
     eret
 
 el2_entry:
+    // Don't trap FP/SIMD in EL2
+    msr     cptr_el2, xzr
     // Configure EL2 and transition to EL1
     mov     x0, #(1 << 31)          // HCR_EL2.RW = 1 (AArch64 for EL1)
     msr     hcr_el2, x0
@@ -43,6 +47,11 @@ el2_entry:
     eret
 
 el1_entry:
+    // Enable FP/SIMD at EL1 (CPACR_EL1.FPEN = 0b11)
+    mov     x0, #(3 << 20)
+    msr     cpacr_el1, x0
+    isb
+
     // Initialize Stack Pointer below kernel load address (0x80000)
     ldr     x0, =_start
     mov     sp, x0
