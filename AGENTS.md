@@ -39,6 +39,7 @@
 - [`docs/architecture.md`](docs/architecture.md): Complete technical architecture, subsystem interaction diagrams, memory layouts, and driver designs.
 - [`docs/status.md`](docs/status.md): Project status matrix, verified virtualization targets (QEMU, VMware Workstation/Player), bug fixes, and future roadmap.
 - [`docs/utilities.md`](docs/utilities.md): Comprehensive reference guide for all built-in utilities (`fdisk`, `mkfs.ext4`, `install`, `gwbasic`, `paratrooper`, `cd`, `ls`, `cat`, `cp`, `ps`, `threads`, `lspci`, `meminfo`, `uname`, `clear`, `help`, `reboot`).
+- [`docs/arm_ble_xbox_roadmap.md`](docs/arm_ble_xbox_roadmap.md): Raspberry Pi AArch64 architecture, Bluetooth LE Xbox controller pairing, VCHIQ HDMI sound, and packaging guide.
 
 ## Build Requirements
 - GNU Make, GCC (`gcc`), GNU Linker (`ld`), `xorriso`, `limine` CLI.
