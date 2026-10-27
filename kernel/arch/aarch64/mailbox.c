@@ -13,19 +13,22 @@ bool mbox_call(uint8_t channel, volatile uint32_t *mbox) {
     // 28-bit address (16-byte aligned) + 4-bit channel
     uint32_t addr = (uint32_t)((uintptr_t)mbox & ~0xF) | (channel & 0xF);
 
-    // Wait until Mailbox write is not full
-    while (mmio_read32(MBOX_BASE + MBOX_STATUS) & MBOX_FULL) {
+    int timeout = 50000;
+    while ((mmio_read32(MBOX_BASE + MBOX_STATUS) & MBOX_FULL) && --timeout > 0) {
         arm_delay(10);
     }
+    if (timeout <= 0) return false;
 
     // Write address to Mailbox
     mmio_write32(MBOX_BASE + MBOX_WRITE, addr);
 
-    // Wait for response
-    while (1) {
-        while (mmio_read32(MBOX_BASE + MBOX_STATUS) & MBOX_EMPTY) {
+    // Wait for response with timeout
+    timeout = 100000;
+    while (--timeout > 0) {
+        while ((mmio_read32(MBOX_BASE + MBOX_STATUS) & MBOX_EMPTY) && --timeout > 0) {
             arm_delay(10);
         }
+        if (timeout <= 0) return false;
 
         uint32_t resp = mmio_read32(MBOX_BASE + MBOX_READ);
         if ((resp & 0xF) == channel && (resp & ~0xF) == ((uintptr_t)mbox & ~0xF)) {
@@ -33,4 +36,5 @@ bool mbox_call(uint8_t channel, volatile uint32_t *mbox) {
             return mbox[1] == 0x80000000;
         }
     }
+    return false;
 }

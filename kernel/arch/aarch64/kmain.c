@@ -7,6 +7,7 @@
 #include <hal/aarch64/mailbox.h>
 #include <drivers/bluetooth.h>
 #include <drivers/gamepad.h>
+#include <drivers/sound.h>
 #include <shell/paratrooper.h>
 
 // Stubs for freestanding AArch64 HAL
@@ -95,6 +96,9 @@ void kmain_aarch64(void) {
 
     printk("[INIT] Initializing Bluetooth HCI & Xbox BLE driver...\n");
     bluetooth_init();
+
+    printk("[INIT] Initializing Sound Driver (VCHIQ HDMI Audio)...\n");
+    sound_init();
 
     printk("\n[SYSTEM] AArch64 Kernel ready. Launching Paratrooper...\n");
     if (has_fb) {

@@ -7,6 +7,7 @@
 #include <hal/serial.h>
 #include <drivers/keyboard.h>
 #include <drivers/gamepad.h>
+#include <drivers/sound.h>
 #include <sched/sched.h>
 #include <shell/paratrooper.h>
 
@@ -81,23 +82,9 @@ static inline void VW(int off, int v) {
     VB(off + 1, v >> 8);
 }
 
-// PC Speaker Sound
+// Unified Sound Output
 static void pt_speaker(int divisor) {
-    if (divisor >= 3) {
-        outb(0x43, 0xB6); // Channel 2, square wave
-        outb(0x42, (uint8_t)(divisor & 0xFF));
-        outb(0x42, (uint8_t)((divisor >> 8) & 0xFF));
-        uint8_t tmp = inb(0x61);
-        if ((tmp & 3) != 3) {
-            outb(0x61, tmp | 3);
-        }
-    } else if (divisor == 1) {
-        uint8_t tmp = inb(0x61);
-        outb(0x61, (tmp & ~1) | 2);
-    } else {
-        uint8_t tmp = inb(0x61);
-        outb(0x61, tmp & ~3);
-    }
+    sound_play_divisor(divisor);
 }
 
 // Keyboard Queue Helpers
@@ -1553,6 +1540,7 @@ void cmd_paratrooper(int argc, char **argv) {
 
     // Clear entire screen to black
     fb_clear(0x00000000);
+    sound_init();
 
     // 3. Run Startup & Title
     startup();
@@ -1563,8 +1551,7 @@ void cmd_paratrooper(int argc, char **argv) {
     }
 
     // 4. Mute speaker & restore console screen
-    pt_speaker(2);
-    outb(0x61, inb(0x61) & ~3);
+    sound_stop();
     fb_clear(0x00000000);
     printk("Exited Paratrooper.\n");
 }

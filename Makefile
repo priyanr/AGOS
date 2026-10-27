@@ -94,6 +94,7 @@ else ifeq ($(ARCH),aarch64)
                         kernel/arch/aarch64/serial.c \
                         kernel/arch/aarch64/mailbox.c \
                         kernel/arch/aarch64/timer.c \
+                        kernel/arch/aarch64/sound_vchiq.c \
                         kernel/drivers/bluetooth/hci.c \
                         kernel/drivers/bluetooth/xbox_ble.c \
                         kernel/drivers/input/gamepad.c \
