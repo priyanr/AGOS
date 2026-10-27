@@ -96,6 +96,7 @@ void kmain_aarch64(void) {
 
     printk("[INIT] Initializing Bluetooth HCI & Xbox BLE driver...\n");
     bluetooth_init();
+    bcm43438_init();
 
     printk("[INIT] Initializing Sound Driver (VCHIQ HDMI Audio)...\n");
     sound_init();
@@ -106,6 +107,7 @@ void kmain_aarch64(void) {
     }
 
     while (1) {
+        bcm43438_poll();
         if (serial_received()) {
             char c = serial_getchar();
             serial_putchar(c);

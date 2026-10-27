@@ -7,6 +7,7 @@
 #include <hal/serial.h>
 #include <drivers/keyboard.h>
 #include <drivers/gamepad.h>
+#include <drivers/bluetooth.h>
 #include <drivers/sound.h>
 #include <sched/sched.h>
 #include <shell/paratrooper.h>
@@ -318,6 +319,9 @@ static void poll_gamepad_input(void) {
 }
 
 static void poll_input(void) {
+#if defined(__aarch64__)
+    bcm43438_poll();
+#endif
     poll_gamepad_input();
     while (keyboard_has_char()) {
         char c = keyboard_getchar();

@@ -62,4 +62,8 @@ void bluetooth_init(void);
 void bluetooth_process_byte(uint8_t byte);
 void bluetooth_send_cmd(uint16_t opcode, const void *param, uint8_t param_len);
 
+// Raspberry Pi Broadcom BCM43438 Hardware Driver
+void bcm43438_init(void);
+void bcm43438_poll(void);
+
 #endif // DRIVERS_BLUETOOTH_H

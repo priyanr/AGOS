@@ -71,9 +71,13 @@ To connect a modern Xbox Wireless Controller (Model 1708 or Model 1914 Series X|
   │       ╰─────────╯       Solid white      = Paired & Active
 ```
 
-### 2.2 Low-Level Bluetooth Protocol Handshake
+### 2.2 Low-Level Bluetooth Protocol Handshake (Target Design)
 
-Under the hood, the kernel executes an automated 5-stage BLE protocol handshake:
+> [!WARNING]
+> **Status: Under Construction (Scaffolding Only)**  
+> While the upper HID report parser (`xbox_ble.c`) and Gamepad HAL (`gamepad.c`) are implemented, physical Bluetooth pairing is currently non-functional on hardware. The radio transport layer (PL011 UART to BCM43438, patchram firmware upload, HCI scan loop, and SMP AES-128 key exchange) is being built step-by-step.
+
+The target 5-stage BLE protocol sequence under development:
 
 ```mermaid
 sequenceDiagram
@@ -247,7 +251,12 @@ To run on a real Raspberry Pi 3:
 - [x] Unified Sound HAL (`include/drivers/sound.h`).
 - [x] PC Speaker x86_64 Sound Driver (`kernel/arch/x86_64/sound.c`).
 - [x] VideoCore VCHIQ HDMI Audio Driver (`kernel/arch/aarch64/sound_vchiq.c`).
-- [x] BLE HCI Packet Streamer & Router (`kernel/drivers/bluetooth/hci.c`).
-- [x] Xbox Wireless Controller BLE HID Report Parser (`kernel/drivers/bluetooth/xbox_ble.c`).
-- [ ] Broadcom BCM43455 Bluetooth `.hcd` patchram firmware streaming over PL011 UART.
-- [ ] Standalone Security Manager Protocol (SMP) cryptographic AES-128 engine for physical BLE pairing.
+- [x] BLE HCI Packet Router & Event Framing (`kernel/drivers/bluetooth/hci.c`).
+- [x] Xbox Wireless Controller 16-byte BLE HID Report Parser (`kernel/drivers/bluetooth/xbox_ble.c`).
+- [ ] **Step 1**: Dedicated PL011 UART driver to BCM43438 Bluetooth chip (GPIO 30-33, pinmux, CTS/RTS).
+- [ ] **Step 2**: Broadcom BCM43438 `.hcd` patchram firmware loader over UART (`BCM43430A1.hcd`).
+- [ ] **Step 3**: HCI command dispatcher (`bluetooth_send_cmd`), `HCI_Reset`, and active BLE scanning (`HCI_LE_Set_Scan_Enable`).
+- [ ] **Step 4**: BLE connection establishment (`HCI_LE_Create_Connection`).
+- [ ] **Step 5**: Standalone Security Manager Protocol (SMP) cryptographic AES-128 engine for Xbox pairing.
+- [ ] **Step 6**: GATT discovery & CCCD `0x2902` notification subscription.
+- [ ] **Step 7**: Fragmented L2CAP/ACL packet reassembler in HCI layer.
