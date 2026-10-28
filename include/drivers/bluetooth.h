@@ -73,6 +73,7 @@ void ble_log(const char *fmt, ...);
 // Raspberry Pi Broadcom BCM43438 Hardware Driver (HCI transport)
 void bcm43438_init(void);
 void bcm43438_poll(void);
+void bcm43438_uart_irq(void); // UART0 RX interrupt, called by the IRQ dispatcher
 void bcm43438_send_cmd(uint16_t opcode, const uint8_t *param, uint8_t param_len);
 void bcm43438_send_acl(uint16_t handle, const uint8_t *data, uint16_t len);
 

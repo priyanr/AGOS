@@ -1,4 +1,5 @@
 #include <shell/gwbasic.h>
+#include <shell/shell.h>
 #include <kernel/printk.h>
 #include <kernel/string.h>
 #include <kernel/fb.h>
@@ -466,25 +467,11 @@ static basic_val_t parse_expr(const char **p) {
     return parse_relational(p);
 }
 
-// Basic Input Helper
-static char basic_getchar(void) {
-    while (1) {
-        if (keyboard_has_char()) {
-            return keyboard_getchar();
-        }
-        if (serial_received()) {
-            return serial_getchar();
-        }
-        sched_yield();
-        __asm__ volatile ("pause");
-    }
-}
-
 static void basic_readline(char *buf, size_t max) {
     size_t pos = 0;
     while (1) {
         fb_draw_cursor(true);
-        char c = basic_getchar();
+        char c = console_getchar();
         fb_draw_cursor(false);
 
         if (c == '\r' || c == '\n') {

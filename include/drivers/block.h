@@ -17,6 +17,7 @@ void block_register_device(block_device_t *dev);
 void block_unregister_device(block_device_t *dev);
 block_device_t *block_get_device(const char *name);
 block_device_t *block_get_first_device(void);
-void ata_init(void);
+void ata_init(void);  // x86 ATA PIO disks (hda..hdd)
+void sd_init(void);   // Raspberry Pi SD card (mmc)
 
 #endif // DRIVERS_BLOCK_H

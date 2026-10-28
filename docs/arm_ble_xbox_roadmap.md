@@ -122,8 +122,8 @@ sequenceDiagram
 ### 2.4 Debugging
 Set `BLE_DEBUG_SCREEN` to 1 in `include/drivers/bluetooth.h` for on-screen debug rows: radio,
 link state (`[BLE LINK]`: state, ATT errors, keys, reads, CCCDs, notifications), UART diagnostics,
-HDMI audio state, the GATT attribute table, the last notification bytes and live gamepad state.
-Set `LAUNCH_PARATROOPER` to 0 in `kernel/arch/aarch64/kmain.c` for a debug screen without the game.
+HDMI audio state, the GATT attribute table and the last notification bytes.
+The Pi boots to the shell; `autostart=paratrooper` in `antigravity.cfg` (SD card) starts the game instead.
 With `BLE_DEBUG_SCREEN` 0, runtime `[BLE]` messages go to the serial console only.
 
 ---
@@ -168,7 +168,7 @@ Antigravity OS features an audio HAL ([`include/drivers/sound.h`](file:///f:/pri
 ```
 
 * **x86_64 Backend** ([`kernel/arch/x86_64/sound.c`](file:///f:/priyan/Projects/AI/OS/kernel/arch/x86_64/sound.c)): Directly programmes 8254 PIT Timer channel 2 (`0x42`/`0x43`) and enables the speaker gate bit on port `0x61`.
-* **Raspberry Pi Backend** (`kernel/arch/aarch64/sound_hdmi.c`): feeds the HDMI MAI audio FIFO by DMA from a looping buffer of 48 kHz IEC958 subframes; `sound_play_tone()` rewrites the buffer with a square wave. N/CTS from the mailbox pixel clock, Audio InfoFrame in HDMI RAM packet 4; register sequence follows Linux vc4_hdmi. Verified on HDMI TV speakers (2026-10-28). The earlier VCHIQ driver was a placeholder that never sent audio.
+* **Raspberry Pi Backend** (`kernel/arch/aarch64/drivers/sound_hdmi.c`): feeds the HDMI MAI audio FIFO by DMA from a looping buffer of 48 kHz IEC958 subframes; `sound_play_tone()` rewrites the buffer with a square wave. N/CTS from the mailbox pixel clock, Audio InfoFrame in HDMI RAM packet 4; register sequence follows Linux vc4_hdmi. Verified on HDMI TV speakers (2026-10-28). The earlier VCHIQ driver was a placeholder that never sent audio.
 
 ---
 
@@ -270,14 +270,14 @@ To run on a real Raspberry Pi 3:
 - [x] ARM Generic Timer Driver (`kernel/arch/aarch64/timer.c`).
 - [x] Unified Sound HAL (`include/drivers/sound.h`).
 - [x] PC Speaker x86_64 Sound Driver (`kernel/arch/x86_64/sound.c`).
-- [x] HDMI Audio Driver, MAI + DMA (`kernel/arch/aarch64/sound_hdmi.c`). Replaces the VCHIQ placeholder, which never sent audio.
+- [x] HDMI Audio Driver, MAI + DMA (`kernel/arch/aarch64/drivers/sound_hdmi.c`). Replaces the VCHIQ placeholder, which never sent audio.
 - [x] EL1 exception vectors with on-screen fault report and UART0 RX IRQ (`kernel/arch/aarch64/boot.S`); aarch64 built with `-mstrict-align` (MMU off: unaligned accesses fault).
-- [x] Xbox Wireless Controller 16-byte BLE HID Report Parser (`kernel/drivers/bluetooth/xbox_ble.c`).
+- [x] Xbox Wireless Controller 16-byte BLE HID Report Parser (`kernel/arch/aarch64/drivers/bluetooth/xbox_ble.c`).
 - [x] **Step 1**: Dedicated PL011 UART driver to BCM43438 Bluetooth chip (GPIO 30-33, pinmux, CTS/RTS).
 - [x] **Step 2**: Broadcom BCM43438 `.hcd` patchram firmware loader over UART (`BCM43430A1.hcd`).
 - [x] **Step 3**: HCI command/ACL transport (`bcm43438_send_cmd`, `bcm43438_send_acl`), `HCI_Reset`, and active BLE scanning with duplicate filtering.
 - [x] **Step 4**: BLE connection establishment (`HCI_LE_Create_Connection`).
-- [x] **Step 5**: SMP legacy Just Works pairing with software AES-128, bonding and identity key distribution (`kernel/drivers/bluetooth/ble_host.c`).
+- [x] **Step 5**: SMP legacy Just Works pairing with software AES-128, bonding and identity key distribution (`kernel/arch/aarch64/drivers/bluetooth/ble_host.c`).
 - [x] **Step 6**: GATT discovery, HID value reads, Exit Suspend and CCCD `0x2902` subscription (`ble_host.c`).
 - [x] **Step 7**: HID report routing to the Gamepad HAL; buttons, sticks and triggers verified on the debug screen.
 - [ ] L2CAP/ACL reassembly: not needed while ATT MTU stays 23 (every PDU fits one 27-byte LE fragment).

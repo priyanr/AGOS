@@ -1,6 +1,7 @@
 #include <hal/aarch64/arm.h>
 #include <hal/aarch64/mailbox.h>
 #include <kernel/printk.h>
+#include <mm/vmm.h>
 
 // Identity-mapped MMU so the data and instruction caches can be used. With the MMU off every
 // data access is Device-nGnRnE: no cache and no write combining, which made Paratrooper's
@@ -46,7 +47,7 @@ static uint64_t block(uint64_t addr, uint64_t attr_index) {
 }
 
 // End of the RAM the firmware gives the ARM; the GPU owns the rest up to the peripherals
-static uint64_t arm_ram_end(void) {
+uint64_t rpi_arm_ram_end(void) {
     mmu_mbox[0] = 8 * 4;
     mmu_mbox[1] = 0;
     mmu_mbox[2] = MBOX_TAG_GET_ARM_MEMORY;
@@ -62,7 +63,7 @@ static uint64_t arm_ram_end(void) {
 }
 
 void mmu_init(void) {
-    uint64_t ram_end = arm_ram_end();
+    uint64_t ram_end = rpi_arm_ram_end();
     uint64_t shared_start = (uint64_t)(uintptr_t)__gpu_shared_start;
     uint64_t shared_end = (uint64_t)(uintptr_t)__gpu_shared_end;
 
@@ -113,4 +114,29 @@ void mmu_init(void) {
 
     printk("[MMU] Caches on. ARM RAM end 0x%08X, GPU-shared block 0x%08X-0x%08X\n",
            (unsigned int)ram_end, (unsigned int)shared_start, (unsigned int)shared_end);
+}
+
+// VMM interface used by the shared scheduler and heap: every thread runs in the one identity
+// map above, so physical and virtual addresses are equal and there is nothing to switch
+static address_space_t kernel_as;
+
+address_space_t vmm_create_address_space(void) {
+    return kernel_as;
+}
+
+void vmm_switch_address_space(address_space_t *as) {
+    (void)as;
+}
+
+address_space_t *vmm_get_kernel_address_space(void) {
+    kernel_as.ttbr0 = (paddr_t)(uintptr_t)l1_table;
+    return &kernel_as;
+}
+
+uint64_t vmm_get_hhdm(void) {
+    return 0;
+}
+
+void *vmm_phys_to_virt(paddr_t phys) {
+    return (void *)(uintptr_t)phys;
 }

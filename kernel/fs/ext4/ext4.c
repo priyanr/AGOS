@@ -284,7 +284,8 @@ vfs_node_t *ext4_mount(block_device_t *dev, uint64_t lba_offset) {
 }
 
 block_device_t *ext4_get_device(vfs_node_t *node) {
-    if (!node || !node->ptr) return NULL;
+    // Only ext4 directories carry ext4 data in node->ptr (a FAT32 node holds its own)
+    if (!node || !node->ptr || node->readdir != ext4_vfs_readdir) return NULL;
     ext4_node_data_t *data = (ext4_node_data_t *)node->ptr;
     if (!data->fs) return NULL;
     return data->fs->dev;

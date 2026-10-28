@@ -42,6 +42,18 @@
 >
 > *(An offline copy is also available in the repository at [`docs/demo.mp4`](docs/demo.mp4))*
 
+### Raspberry Pi 3: Paratrooper with an Xbox controller
+
+<p align="center">
+  <a href="https://youtu.be/qdKW4SZYyeY" target="_blank">
+    <img src="https://img.youtube.com/vi/qdKW4SZYyeY/maxresdefault.jpg" alt="Antigravity OS on Raspberry Pi 3: Paratrooper with an Xbox controller" width="800" style="max-width: 100%; border-radius: 8px;" />
+  </a>
+  <br />
+  <em>▶️ <b><a href="https://youtu.be/qdKW4SZYyeY">Watch the Raspberry Pi 3 demo on YouTube</a></b> (Paratrooper on a Raspberry Pi 3, played with an Xbox Wireless Controller over Bluetooth LE)</em>
+</p>
+
+> *(An offline copy is also available in the repository at [`docs/rpi_paratrooper_xbox.mp4`](docs/rpi_paratrooper_xbox.mp4))*
+
 ---
 
 ## 🧪 About This Experiment
@@ -284,8 +296,8 @@ The build produces:
 ## Running on a Raspberry Pi 3
 
 Verified on a **Raspberry Pi 3 Model B** (board revision `a02082`) with an **Xbox Wireless
-Controller** (Bluetooth LE model, e.g. 1914) on an HDMI TV. The Pi boots straight into
-Paratrooper with HDMI sound; the controller pairs over the Pi's onboard Bluetooth.
+Controller** (Bluetooth LE model, e.g. 1914) on an HDMI TV. The Pi boots into the same shell as the
+PC build (USB keyboard); Paratrooper has HDMI sound and the controller pairs over the onboard Bluetooth.
 
 ### 1. Build
 
@@ -306,6 +318,7 @@ Output in `output/aarch64/`:
 |---|---|
 | `kernel8.img` | The Antigravity OS kernel (Bluetooth firmware linked in) |
 | `config.txt` | GPU firmware settings: 64-bit mode, HDMI forced on, UART clocks |
+| `antigravity.cfg` | Antigravity OS settings: `autostart=shell` (default) or `autostart=paratrooper` |
 | `bootcode.bin`, `start.elf`, `fixup.dat` | Raspberry Pi GPU boot firmware |
 | `LICENCE.broadcom`, `LICENSE.cypress` | Licences of the firmware |
 | `antigravity-rpi.img` | Ready-to-flash 64 MB SD card image containing all of the above |
@@ -316,13 +329,16 @@ Either:
 - **Flash the image**: write `output/aarch64/antigravity-rpi.img` with Raspberry Pi Imager
   ("Use custom"), Rufus, balenaEtcher, or `sudo dd if=output/aarch64/antigravity-rpi.img of=/dev/sdX bs=4M conv=fsync`.
 - **Or copy files**: format the card as FAT32 and copy `kernel8.img`, `config.txt`,
-  `bootcode.bin`, `start.elf`, `fixup.dat` and the two licence files to its root.
+  `antigravity.cfg`, `bootcode.bin`, `start.elf`, `fixup.dat` and the two licence files to its root.
 
 After a code change only `kernel8.img` needs to be copied again.
 
 ### 3. Boot and pair the controller
 
-1. Insert the card, connect HDMI, power the Pi. Boot messages appear, then Paratrooper starts.
+1. Insert the card, plug in a USB keyboard, connect HDMI, power the Pi. Boot messages appear,
+   then the same shell as on the PC (`help`, `ls`, `cat antigravity.cfg`, `gwbasic`, `paratrooper`...).
+   The SD card boot partition is mounted read-only as `/`. To start the game at boot instead, set
+   `autostart=paratrooper` in `antigravity.cfg` (editable on any PC); quitting the game opens the shell.
 2. **First time**: hold the controller's **pairing button** (top edge, next to USB-C) until the Xbox
    logo flashes fast. The Pi finds it, pairs, and the logo turns solid.
 3. **Afterwards**: just switch the controller on with the Xbox button; it reconnects to the Pi,
@@ -335,7 +351,7 @@ After a code change only `kernel8.img` needs to be copied again.
 | Left stick / D-pad left-right | Turn the gun |
 | A, RB or right trigger | Fire |
 | Menu (or A on the title screen) | Start a game |
-| View or Xbox button | Quit to the title screen |
+| View or Xbox button (keyboard: Esc or q) | Quit to the shell |
 
 ### 5. Troubleshooting
 
@@ -343,12 +359,15 @@ After a code change only `kernel8.img` needs to be copied again.
   `fixup.dat`, `config.txt` and `kernel8.img` in its root.
 - **Controller does not connect**: put it in pairing mode again; make sure it is not currently
   connected to another device (PC, console, phone).
-- **Debug screen**: set `BLE_DEBUG_SCREEN` to `1` in `include/drivers/bluetooth.h` (and optionally
-  `LAUNCH_PARATROOPER` to `0` in `kernel/arch/aarch64/kmain.c`) and rebuild. The screen then shows
-  Bluetooth link state, the controller's GATT table, live button state and HDMI audio state.
+- **Keyboard does nothing**: watch the boot messages for `USB: keyboard on device ...`. Keyboards
+  plugged in after boot are picked up within a second. The serial console (mini-UART, GPIO 14/15)
+  always works as a second input.
+- **Debug screen**: set `BLE_DEBUG_SCREEN` to `1` in `include/drivers/bluetooth.h` and rebuild.
+  The screen then shows Bluetooth link state, the controller's GATT table and HDMI audio state.
   Details: [`docs/arm_ble_xbox_roadmap.md`](docs/arm_ble_xbox_roadmap.md).
-- **QEMU**: `make ARCH=aarch64 run` boots the kernel in QEMU's `raspi3` machine for a quick check
-  (no Bluetooth; QEMU cannot emulate the looping HDMI audio DMA).
+- **QEMU**: `make ARCH=aarch64 run-sd` boots in QEMU's `raspi3` machine with the SD image (no
+  Bluetooth or USB; QEMU's DMA model never returns from the looping HDMI audio set-up, so
+  `sound_init` must be skipped there).
 
 ---
 

@@ -1,4 +1,5 @@
 #include <shell/installer.h>
+#include <shell/shell.h>
 #include <drivers/block.h>
 #include <drivers/partition.h>
 #include <fs/mkfs.h>
@@ -11,20 +12,12 @@
 #include <drivers/keyboard.h>
 #include <hal/serial.h>
 
-#include "../../limine-bin/limine-bios-hdd.h"
+#include "limine-bin/limine-bios-hdd.h"
 
 static void installer_readline(char *buf, size_t max) {
     size_t pos = 0;
     while (1) {
-        char c = 0;
-        if (keyboard_has_char()) {
-            c = keyboard_getchar();
-        } else if (serial_received()) {
-            c = serial_getchar();
-        } else {
-            __asm__ volatile ("pause");
-            continue;
-        }
+        char c = console_getchar();
 
         if (c == '\r' || c == '\n') {
             printk("\n");

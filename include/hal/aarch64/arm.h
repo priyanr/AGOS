@@ -11,6 +11,15 @@
 // uncached, peripherals Device. Call once, early, before the framebuffer is set up.
 void mmu_init(void);
 
+// End of the RAM the firmware gives the ARM (mailbox GET_ARM_MEMORY); the GPU owns the rest
+uint64_t rpi_arm_ram_end(void);
+
+// Physical timer interrupt: reload and run the scheduler tick (timer.c)
+void timer_irq(void);
+
+// Raspberry Pi peripheral bus address of a GPU_SHARED buffer for DMA engines (uncached alias)
+#define BUS_ADDRESS(p) ((uint32_t)(uintptr_t)(p) | 0xC0000000)
+
 static inline void mmio_write32(uintptr_t reg, uint32_t val) {
     *(volatile uint32_t *)reg = val;
 }
