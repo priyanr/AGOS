@@ -34,12 +34,14 @@
    - Integrated Microsoft GW-BASIC (1983) interpreter binary.
    - Built-in Paratrooper (1982) Orion Software CGA arcade game (`paratrooper`).
    - Native hard drive installer (`install`) automating dual-partition deployment (64MB FAT32 boot partition + ext4 root partition), Limine MBR bootloader installation, and live root hot-mounting.
+7. **Raspberry Pi 3 (AArch64) port** (`make ARCH=aarch64`): boots `kernel8.img` from the GPU firmware, mailbox framebuffer, HDMI audio, Xbox Wireless Controller over Bluetooth LE driving Paratrooper. See `docs/arm_ble_xbox_roadmap.md`.
 
 ## Documentation References
 - [`docs/architecture.md`](docs/architecture.md): Complete technical architecture, subsystem interaction diagrams, memory layouts, and driver designs.
 - [`docs/status.md`](docs/status.md): Project status matrix, verified virtualization targets (QEMU, VMware Workstation/Player), bug fixes, and future roadmap.
 - [`docs/utilities.md`](docs/utilities.md): Comprehensive reference guide for all built-in utilities (`fdisk`, `mkfs.ext4`, `install`, `gwbasic`, `paratrooper`, `cd`, `ls`, `cat`, `cp`, `ps`, `threads`, `lspci`, `meminfo`, `uname`, `clear`, `help`, `reboot`).
-- [`docs/arm_ble_xbox_roadmap.md`](docs/arm_ble_xbox_roadmap.md): Raspberry Pi AArch64 architecture, Bluetooth LE Xbox controller pairing, VCHIQ HDMI sound, and packaging guide.
+- [`docs/arm_ble_xbox_roadmap.md`](docs/arm_ble_xbox_roadmap.md): Raspberry Pi 3 AArch64 port: Bluetooth LE Xbox controller (BCM43438 + own BLE host), HDMI audio (MAI + DMA), debug flags, build and flashing guide.
+- [`docs/history.md`](docs/history.md): Append-only log of changes and why, newest first.
 
 ## Build Requirements
 - GNU Make, GCC (`gcc`), GNU Linker (`ld`), `xorriso`, `limine` CLI.

@@ -1,6 +1,6 @@
 # Antigravity OS — Raspberry Pi AArch64, Bluetooth LE & Xbox Controller Guide
 
-This document provides a comprehensive technical reference for running Antigravity OS on **Raspberry Pi (AArch64 / ARMv8-A)**, pairing an **Xbox Wireless Controller over Bluetooth Low Energy (BLE)**, outputting **HDMI Audio via VideoCore VCHIQ**, and playing **Paratrooper**.
+This document provides a comprehensive technical reference for running Antigravity OS on **Raspberry Pi (AArch64 / ARMv8-A)**, pairing an **Xbox Wireless Controller over Bluetooth Low Energy (BLE)**, outputting **HDMI audio (HDMI MAI FIFO fed by DMA)**, and playing **Paratrooper**.
 
 ---
 
@@ -28,9 +28,10 @@ flowchart TD
     end
 
     subgraph AArch64 / Raspberry Pi Backend
-        HCI["HCI Packet Dispatcher (hci.c)"]
+        BLE_HOST["BLE Host: SMP / ATT / GATT (ble_host.c)"]
+        HCI["BCM43438 HCI Transport + IRQ RX ring (bcm43438.c)"]
         BLE_XBOX["Xbox BLE HID Report Parser (xbox_ble.c)"]
-        VCHIQ_SND["HDMI MAI + DMA Audio (sound_hdmi.c)"]
+        HDMI_SND["HDMI MAI + DMA Audio (sound_hdmi.c)"]
         MBOX_FB["VideoCore Mailbox FB 1024x768 (mailbox.c)"]
         PL011["PL011 UART & Mini-UART (serial.c)"]
         TIMER_ARM["ARM Generic Timer cntpct_el0 (timer.c)"]
@@ -39,12 +40,13 @@ flowchart TD
     %% Wiring
     PT --> GP_HAL
     PT --> SND_HAL
-    GP_HAL --> BLE_XBOX
-    BLE_XBOX --> HCI
+    BLE_XBOX --> GP_HAL
+    BLE_HOST --> BLE_XBOX
+    HCI --> BLE_HOST
     HCI --> PL011
     SND_HAL --> SPK_X86
-    SND_HAL --> VCHIQ_SND
-    VCHIQ_SND --> MBOX_FB
+    SND_HAL --> HDMI_SND
+    HDMI_SND --> MBOX_FB
     KBD_X86 --> PT
 ```
 
@@ -71,41 +73,58 @@ To connect a modern Xbox Wireless Controller (Model 1708 or Model 1914 Series X|
   │       ╰─────────╯       Solid white      = Paired & Active
 ```
 
-### 2.2 Low-Level Bluetooth Protocol Handshake (Target Design)
+### 2.2 Bluetooth Protocol Flow (verified on Pi 3B, 2026-10-28)
 
-> [!WARNING]
-> **Status: Under Construction (Scaffolding Only)**  
-> While the upper HID report parser (`xbox_ble.c`) and Gamepad HAL (`gamepad.c`) are implemented, physical Bluetooth pairing is currently non-functional on hardware. The radio transport layer (PL011 UART to BCM43438, patchram firmware upload, HCI scan loop, and SMP AES-128 key exchange) is being built step-by-step.
-
-The target 5-stage BLE protocol sequence under development:
+The host stack is `bcm43438.c` (radio bring-up, HCI transport, scan/connect) plus `ble_host.c`
+(L2CAP, SMP, ATT/GATT). In pairing mode the controller only leaves pairing mode (solid light)
+and sends input once the Pi behaves like a complete HID host, so every step below is needed:
 
 ```mermaid
 sequenceDiagram
     participant X as Xbox Wireless Controller
-    participant K as Antigravity OS (HCI / BLE)
-    participant S as Unified Gamepad HAL (gamepad.c)
-    participant P as Paratrooper (paratrooper.c)
+    participant K as Antigravity OS (bcm43438.c + ble_host.c)
+    participant P as Gamepad HAL / Paratrooper
 
-    Note over X: User holds Pairing button (Rapid Flash)
-    X->>K: BLE Advertising Packets (UUID: 0x1812 HID)
-    K->>X: HCI_OP_LE_CREATE_CONN (Target BD_ADDR)
-    X-->>K: HCI_EVT_LE_CONN_COMPLETE (Handle: 0x0040)
-    Note over K,X: L2CAP Channel 0x0006 (SMP Security Handshake)
-    K->>X: SMP Pairing Request (Just Works / AES-128 Key Exchange)
-    X-->>K: SMP Pairing Response & Long-Term Key
-    K->>X: HCI_OP_LE_START_ENCRYPTION
-    Note over K,X: Encryption link active
-    K->>X: GATT Write to CCCD 0x2902 (0x0001: Enable Notifications)
-    Note over X: Xbox Logo turns SOLID (Connected!)
-    loop Continuous Gameplay Streaming
-        X->>K: 16-Byte BLE HID Input Report
-        K->>S: xbox_ble_parse_report() -> gamepad_update_state()
-        S->>P: poll_gamepad_input() -> Inject Paratrooper Keycodes
+    Note over K: BT_ON via mailbox, 32 kHz LPO, PL011 115200, patchram upload, LE scan
+    X->>K: Advertising (appearance 0x03C4 gamepad, HID UUID 0x1812)
+    K->>X: LE_Create_Connection
+    K->>X: SMP Pairing Request (Just Works, legacy, bonding, IdKey / EncKey)
+    X-->>K: Pairing Response, Confirm, Random (c1 / s1, software AES-128)
+    K->>X: LE_Start_Encryption (STK)
+    X-->>K: Encryption Information (LTK) + Master Identification
+    K->>X: Identity Information (IRK) + Identity Address
+    Note over K,X: Bonding complete: only now set up GATT
+    K->>X: Find Information (attribute table) + Read By Type 0x2803 (characteristics)
+    K->>X: Read every readable value in full (Report Map via Read Blob, HID Info, report refs)
+    K->>X: HID Control Point: Exit Suspend
+    K->>X: Write 0x0001 to every CCCD (0x15, 0x1F on this controller)
+    Note over X: Logo turns SOLID
+    loop Gameplay
+        X->>K: HID input report notification (16 bytes)
+        K->>P: xbox_ble_parse_report() -> gamepad_update_state()
     end
 ```
 
-### 2.3 Critical BLE Security (SMP) Requirement
-Modern Xbox controllers enforce **BLE Security Mode 1 (Encrypted Link)**. If the host operating system does not negotiate the Security Manager Protocol (SMP) handshake and activate AES-128 link encryption, the controller automatically severs the connection after 2 seconds.
+### 2.3 Lessons from Bring-up
+- **Security**: the controller requires an encrypted, bonded link. Legacy Just Works pairing is
+  accepted; LE Secure Connections (P-256) is not needed.
+- **Pairing mode** needs the full HID-host behaviour above (bond first, send our identity keys,
+  read the HID values, then subscribe). Writing CCCDs before bonding finished gave a link that
+  stayed silent with the light flashing.
+- **Most characteristic value types arrive as 128-bit UUIDs** that are not on the Bluetooth base,
+  so the gamepad report cannot be picked by type; the host subscribes to every CCCD and parses any
+  notification of gamepad size.
+- **Keys are RAM-only**, which is fine: after a Pi reboot a normal power-on of the controller
+  reconnects and accepts a fresh pairing.
+- **UART**: the PL011 FIFO is 16 bytes (~1.4 ms at 115200), so RX is interrupt-driven into a
+  4 KB ring; scanning always uses duplicate filtering to avoid flooding the link.
+
+### 2.4 Debugging
+Set `BLE_DEBUG_SCREEN` to 1 in `include/drivers/bluetooth.h` for on-screen debug rows: radio,
+link state (`[BLE LINK]`: state, ATT errors, keys, reads, CCCDs, notifications), UART diagnostics,
+HDMI audio state, the GATT attribute table, the last notification bytes and live gamepad state.
+Set `LAUNCH_PARATROOPER` to 0 in `kernel/arch/aarch64/kmain.c` for a debug screen without the game.
+With `BLE_DEBUG_SCREEN` 0, runtime `[BLE]` messages go to the serial console only.
 
 ---
 
@@ -123,7 +142,7 @@ The unified Gamepad HAL maps analog thumbstick thresholds and button presses to 
 
 ---
 
-## 4. Audio Architecture (VCHIQ HDMI vs PC Speaker)
+## 4. Audio Architecture (HDMI vs PC Speaker)
 
 Antigravity OS features an audio HAL ([`include/drivers/sound.h`](file:///f:/priyan/Projects/AI/OS/include/drivers/sound.h)) providing identical gameplay audio across different architectures:
 
@@ -137,19 +156,19 @@ Antigravity OS features an audio HAL ([`include/drivers/sound.h`](file:///f:/pri
                     ▼                                         ▼
       ┌───────────────────────────┐             ┌───────────────────────────┐
       │     x86_64 Audio Driver   │             │   Raspberry Pi (AArch64)  │
-      │   (PC Speaker / PIT Ch 2) │             │  (VideoCore VCHIQ HDMI)   │
+      │   (PC Speaker / PIT Ch 2) │             │   (HDMI MAI FIFO + DMA)   │
       └─────────────┬─────────────┘             └─────────────┬─────────────┘
                     │                                         │
                     ▼                                         ▼
-          Ports 0x61 & 0x43                          VCHIQ Mailbox (Ch 3)
-           Internal Beeper                              VideoCore GPU
+          Ports 0x61 & 0x43                       DMA ch 5 (DREQ 17) -> MAI
+           Internal Beeper                            HDMI audio packets
                                                               │
                                                               ▼
                                                         HDMI TV Speakers
 ```
 
 * **x86_64 Backend** ([`kernel/arch/x86_64/sound.c`](file:///f:/priyan/Projects/AI/OS/kernel/arch/x86_64/sound.c)): Directly programmes 8254 PIT Timer channel 2 (`0x42`/`0x43`) and enables the speaker gate bit on port `0x61`.
-* **Raspberry Pi Backend** (`kernel/arch/aarch64/sound_hdmi.c`): feeds the HDMI MAI audio FIFO by DMA from a looping buffer of 48 kHz IEC958 subframes; `sound_play_tone()` rewrites the buffer with a square wave. Not yet verified on hardware.
+* **Raspberry Pi Backend** (`kernel/arch/aarch64/sound_hdmi.c`): feeds the HDMI MAI audio FIFO by DMA from a looping buffer of 48 kHz IEC958 subframes; `sound_play_tone()` rewrites the buffer with a square wave. N/CTS from the mailbox pixel clock, Audio InfoFrame in HDMI RAM packet 4; register sequence follows Linux vc4_hdmi. Verified on HDMI TV speakers (2026-10-28). The earlier VCHIQ driver was a placeholder that never sent audio.
 
 ---
 
@@ -211,6 +230,7 @@ output/
 ### 6.1 Verified Hardware Target: Raspberry Pi 3 Model B
 > [!NOTE]
 > Bare-metal boot has been **physically verified on a real Raspberry Pi 3 Model B** over HDMI with full video output and green ACT activity light.
+> Xbox Wireless Controller over Bluetooth LE (pairing mode, normal reconnect, Pi reboot) and HDMI audio were verified on the same board on 2026-10-28.
 
 ### 6.2 Raspberry Pi Hardware Boot Chain Note
 Unlike x86 PCs, the Raspberry Pi's ARM CPU cannot boot from cold power. The Broadcom VideoCore GPU boot ROM must first load `bootcode.bin` and `start.elf`. Without these files on the FAT32 partition, the green ACT LED remains dark and the board will not power the ARM CPU or HDMI controller.
@@ -250,13 +270,15 @@ To run on a real Raspberry Pi 3:
 - [x] ARM Generic Timer Driver (`kernel/arch/aarch64/timer.c`).
 - [x] Unified Sound HAL (`include/drivers/sound.h`).
 - [x] PC Speaker x86_64 Sound Driver (`kernel/arch/x86_64/sound.c`).
-- [ ] HDMI Audio Driver, MAI + DMA (`kernel/arch/aarch64/sound_hdmi.c`): written, not yet verified on hardware. Replaces the VCHIQ placeholder, which never sent audio.
-- [x] BLE HCI Packet Router & Event Framing (`kernel/drivers/bluetooth/hci.c`).
+- [x] HDMI Audio Driver, MAI + DMA (`kernel/arch/aarch64/sound_hdmi.c`). Replaces the VCHIQ placeholder, which never sent audio.
+- [x] EL1 exception vectors with on-screen fault report and UART0 RX IRQ (`kernel/arch/aarch64/boot.S`); aarch64 built with `-mstrict-align` (MMU off: unaligned accesses fault).
 - [x] Xbox Wireless Controller 16-byte BLE HID Report Parser (`kernel/drivers/bluetooth/xbox_ble.c`).
 - [x] **Step 1**: Dedicated PL011 UART driver to BCM43438 Bluetooth chip (GPIO 30-33, pinmux, CTS/RTS).
 - [x] **Step 2**: Broadcom BCM43438 `.hcd` patchram firmware loader over UART (`BCM43430A1.hcd`).
-- [x] **Step 3**: HCI command dispatcher (`bluetooth_send_cmd`), `HCI_Reset`, and active BLE scanning (`HCI_LE_Set_Scan_Enable`).
+- [x] **Step 3**: HCI command/ACL transport (`bcm43438_send_cmd`, `bcm43438_send_acl`), `HCI_Reset`, and active BLE scanning with duplicate filtering.
 - [x] **Step 4**: BLE connection establishment (`HCI_LE_Create_Connection`).
-- [ ] **Step 5**: SMP legacy Just Works pairing with software AES-128 (`kernel/drivers/bluetooth/ble_host.c`): written, not yet verified on hardware.
-- [ ] **Step 6**: GATT discovery & CCCD `0x2902` notification subscription (`ble_host.c`): written, not yet verified on hardware.
-- [ ] **Step 7**: Fragmented L2CAP/ACL reassembly: not needed while ATT MTU stays 23 (every PDU fits one 27-byte LE fragment).
+- [x] **Step 5**: SMP legacy Just Works pairing with software AES-128, bonding and identity key distribution (`kernel/drivers/bluetooth/ble_host.c`).
+- [x] **Step 6**: GATT discovery, HID value reads, Exit Suspend and CCCD `0x2902` subscription (`ble_host.c`).
+- [x] **Step 7**: HID report routing to the Gamepad HAL; buttons, sticks and triggers verified on the debug screen.
+- [ ] L2CAP/ACL reassembly: not needed while ATT MTU stays 23 (every PDU fits one 27-byte LE fragment).
+- [ ] Persisting pairing keys: not needed (the controller accepts a fresh pairing after every Pi boot).

@@ -1,7 +1,7 @@
 # Antigravity OS Status Report
 
-**Release**: Antigravity OS 1.0.0-preempt (x86_64)  
-**Last Updated**: October 2026  
+**Release**: Antigravity OS 1.0.0-preempt (x86_64 + Raspberry Pi 3 AArch64)  
+**Last Updated**: 2026-10-28  
 **Build Status**: Passing (0 warnings, 0 errors)
 
 ---
@@ -51,7 +51,7 @@
 - **Physical Boot Chain**: VideoCore GPU loads `bootcode.bin` and `start.elf` from FAT32 partition, reads `config.txt` (`arm_64bit=1`, `hdmi_force_hotplug=1`, `hdmi_drive=2`, `config_hdmi_boost=4`), and loads `kernel8.img` to `0x80000`.
 - **Physical Display & Framebuffer**: Linear 1024x768 (32 BPP) framebuffer allocated via VideoCore Mailbox property tags; full HDMI video output physically verified on real Raspberry Pi 3 hardware.
 - **Audio** (verified on Pi 3B HDMI, 2026-10-28): the old VCHIQ driver was a placeholder that never sent audio. Replaced by `sound_hdmi.c`: HDMI MAI FIFO fed by DMA channel 5 (DREQ 17) looping over a 100 ms buffer of IEC958 subframes at 48 kHz, N/CTS clock regeneration from the mailbox pixel clock, Audio InfoFrame in HDMI RAM packet 4. Register sequence follows Linux vc4_hdmi; HSM clock assumed 163.682864 MHz. Debug line `[AUDIO]` shows MAI_CTL / DMA state.
-- **Input & Gamepad**: Paratrooper arcade game running with keyboard/serial input and Gamepad HAL.
+- **Input & Gamepad**: Paratrooper runs on the Pi and is played with an Xbox Wireless Controller over Bluetooth LE through the Gamepad HAL (keyboard/serial input on x86). Controls verified on the debug screen; a full game session with the controller is not yet re-tested.
 - **Bluetooth BLE Subsystem** (verified on Pi 3B rev `0xA02082`, 2026-10-27): BCM43438 powered via mailbox BT_ON (expander GPIO 128) with 32 kHz LPO on GPIO 43, PL011 on GPIO 32/33 at 115200, patchram firmware upload, LE scan, Xbox controller detection (HID UUID 0x1812 / gamepad appearance 0x03C4) and LE connection all work. UART RX is IRQ-driven into a 4 KB ring (EL1 vector table in `boot.S`); unhandled CPU exceptions now print ESR/ELR/FAR on screen. Console moved to the mini-UART (GPIO 14/15).
 - **BLE host** (verified on Pi 3B with Xbox Wireless Controller F4:6A:D7:DB:45:68, 2026-10-28): `ble_host.c` does SMP legacy Just Works pairing (software AES-128; c1/s1 checked against the Core spec test vectors), LE encryption, GATT discovery (Find Information table + Read By Type 0x2803), subscribes to every CCCD in the table (the controller has two input-report CCCDs, 0x15 and 0x1F, and most value types arrive as unrecognised 128-bit UUIDs), parses any notification of gamepad size. Buttons, sticks and triggers verified on the `[GAMEPAD]` debug row. Xbox button bits: View 10, Menu 11, Guide 12, LS 13, RS 14.
 - **BLE pairing mode** (verified 2026-10-28): the controller only leaves pairing mode (solid light) and sends input when the host behaves like a full HID host: wait for bonding to finish, send our identity keys (IRK + address), read every readable HID value (Report Map, HID Information, report references) in full, send HID Control Point Exit Suspend, then write the CCCDs. Normal power-on reconnect works too, also after a Pi reboot (fresh pairing each boot, keys are RAM-only).

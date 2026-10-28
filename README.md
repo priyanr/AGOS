@@ -70,6 +70,7 @@
 - 📟 **Interactive Shell & Console**: Linear 1024x768x32 framebuffer terminal with smooth 64-bit word scrolling, custom 8x16 bitmap font, dual keyboard (PS/2) and serial (UART 16550 COM1) I/O.
 - 📜 **Classic Microsoft GW-BASIC (1983)**: Fully integrated GW-BASIC interpreter capable of running interactive sessions and standalone `.bas` script files from ext4 storage.
 - 🪂 **Paratrooper (1982) Arcade Game**: Pure freestanding C11 source port of the legendary 1982 Orion Software game featuring upscaled CGA Mode 4 graphics, real-time PC Speaker audio, and authentic troop drop/takeover mechanics.
+- 🍓 **Raspberry Pi 3 (AArch64) Port**: `make ARCH=aarch64` builds a bootable SD card image. Paratrooper runs over HDMI with HDMI audio, played with an **Xbox Wireless Controller over Bluetooth LE** through the kernel's own BCM43438 driver and BLE host (pairing, encryption, HID over GATT). See [`docs/arm_ble_xbox_roadmap.md`](docs/arm_ble_xbox_roadmap.md).
 
 ---
 
