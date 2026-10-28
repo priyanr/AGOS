@@ -3,6 +3,13 @@
 Append-only log of what was done and why, **newest entry first**. Older entries move to
 `docs/history-archive/<year>.md` when this file passes ~1500 lines.
 
+### HDMI audio silent on some boots after the speed-up (feature/arm-ble-xbox, 2026-10-28)
+- What: real 2 ms timer waits after the MAI and DMA resets, memory barriers before starting the DMA and after rewriting the tone buffer, DMA start verified and retried once, and the DMA restarted if a tone is played while it is stopped.
+- Why: after the MMU/cache change, sound worked on one boot and not on later ones (power unplugged). The old delay-loop wait after DMA reset shrank to about a microsecond, so the start could be ignored.
+- Touched: `sound_hdmi.c`. [AUDIO] debug line shows rst (DMA restarts).
+- Verified: aarch64 build. Not yet run on the Pi.
+- Open: if still silent, one boot with BLE_DEBUG_SCREEN 1 and the [AUDIO] line.
+
 ### Pi performance: MMU + caches, max ARM clock (feature/arm-ble-xbox, 2026-10-28)
 - What: identity-mapped MMU with data and instruction caches (`mmu.c`): RAM write-back, GPU memory/framebuffer and a GPU_SHARED block (mailbox and DMA buffers) uncached, peripherals Device. ARM clock raised to its maximum via mailbox. Mailbox and HDMI packet waits now use the ms timer.
 - Why: Paratrooper was slow on the Pi; with the MMU off every access (each framebuffer pixel of the 1024x768 upscale) was an uncached strongly-ordered write.

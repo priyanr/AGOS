@@ -75,6 +75,7 @@ static uint32_t pixel_clock_hz = 0;
 static uint32_t cts = 0;
 static uint32_t smp_n = 0;
 static uint32_t smp_m = 0;
+static uint32_t dma_restarts = 0; // times sound_play_tone() found the DMA stopped
 
 static volatile uint32_t __attribute__((aligned(16))) GPU_SHARED audio_mbox[8];
 
@@ -194,6 +195,8 @@ static void write_audio_infoframe(void) {
     wait_ram_packet_status(bit, true);
 }
 
+static bool dma_running(void);
+
 static void start_dma(void) {
     dma_cb[0] = (1u << 3)                    // WAIT_RESP
               | (1u << 6)                    // DEST_DREQ
@@ -208,15 +211,30 @@ static void start_dma(void) {
     dma_cb[6] = 0;
     dma_cb[7] = 0;
 
-    mmio_write32(DMA_ENABLE, mmio_read32(DMA_ENABLE) | (1u << DMA_CHANNEL));
-    mmio_write32(DMA_CS, 1u << 31);          // RESET
-    arm_delay(1000);
-    mmio_write32(DMA_DEBUG, 0x7);            // Clear error flags
-    mmio_write32(DMA_CONBLK_AD, BUS_ADDRESS(dma_cb));
-    mmio_write32(DMA_CS, (1u << 28)          // WAIT_FOR_OUTSTANDING_WRITES
-                       | (15u << 20)         // PANIC_PRIORITY
-                       | (8u << 16)          // PRIORITY
-                       | 1u);                // ACTIVE
+    // Control block and samples must be in memory before the DMA engine reads them
+    __asm__ volatile("dsb sy" ::: "memory");
+
+    // Up to two attempts: with caches on, the old delay-loop wait after RESET became too
+    // short and the start was sometimes ignored, leaving HDMI silent for that boot
+    for (int attempt = 0; attempt < 2; attempt++) {
+        mmio_write32(DMA_ENABLE, mmio_read32(DMA_ENABLE) | (1u << DMA_CHANNEL));
+        mmio_write32(DMA_CS, 1u << 31);      // RESET
+        timer_sleep_ms(2);
+        mmio_write32(DMA_DEBUG, 0x7);        // Clear error flags
+        mmio_write32(DMA_CONBLK_AD, BUS_ADDRESS(dma_cb));
+        mmio_write32(DMA_CS, (1u << 28)      // WAIT_FOR_OUTSTANDING_WRITES
+                           | (15u << 20)     // PANIC_PRIORITY
+                           | (8u << 16)      // PRIORITY
+                           | 1u);            // ACTIVE
+        timer_sleep_ms(2);
+        if (dma_running()) return;
+    }
+}
+
+// Active and no error (CS bit 8)
+static bool dma_running(void) {
+    uint32_t cs = mmio_read32(DMA_CS);
+    return (cs & 1u) && !(cs & (1u << 8));
 }
 
 void sound_init(void) {
@@ -238,6 +256,7 @@ void sound_init(void) {
     compute_mai_divider();
 
     mmio_write32(HD_MAI_CTL, MAI_CTL_RESET | MAI_CTL_FLUSH | MAI_CTL_DLATE | MAI_CTL_ERRORE | MAI_CTL_ERRORF);
+    timer_sleep_ms(2); // Let the MAI reset and FIFO flush finish before configuring it
     mmio_write32(HD_MAI_SMP, (smp_n << 8) | (smp_m - 1));
     mmio_write32(HD_MAI_FMT, (9u << 8)                   // Sample rate code: 48 kHz
                            | (2u << 16));                // Audio format: PCM
@@ -267,9 +286,16 @@ void sound_init(void) {
 }
 
 void sound_play_tone(uint32_t frequency_hz) {
-    if (!hdmi_audio_running || frequency_hz == current_frequency) return;
+    if (!hdmi_audio_running) return;
+    // Self-repair: if the DMA ever stopped, start it again (cheap register read per call)
+    if (!dma_running()) {
+        dma_restarts++;
+        start_dma();
+    }
+    if (frequency_hz == current_frequency) return;
     current_frequency = frequency_hz;
     fill_buffer(frequency_hz);
+    __asm__ volatile("dsb sy" ::: "memory");
 }
 
 void sound_stop(void) {
@@ -288,9 +314,9 @@ const char *sound_status_line(void) {
     static char line[96];
     if (!hdmi_audio_running) return "HDMI audio not started";
     // DMA SOURCE_AD moving and MAI_CTL without error bits (1, 12) means samples are flowing
-    snprintf(line, sizeof(line), "pix:%d cts:%d smp:%d/%d mai:%08X dma:%08X src:%08X tone:%dHz",
-             (int)pixel_clock_hz, (int)cts, (int)smp_n, (int)smp_m,
+    snprintf(line, sizeof(line), "pix:%d cts:%d mai:%08X dma:%08X src:%08X rst:%d tone:%dHz",
+             (int)pixel_clock_hz, (int)cts,
              (unsigned int)mmio_read32(HD_MAI_CTL), (unsigned int)mmio_read32(DMA_CS),
-             (unsigned int)mmio_read32(DMA_SOURCE_AD), (int)current_frequency);
+             (unsigned int)mmio_read32(DMA_SOURCE_AD), (int)dma_restarts, (int)current_frequency);
     return line;
 }
