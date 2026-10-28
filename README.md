@@ -51,7 +51,7 @@
 >
 > * **Tooling & AI Model**: This project was an experiment built using the **Antigravity CLI (`agy`)** and **Gemini 3.8 Flash (Medium)**.
 > * **Speed & Efficiency**: The entire operating system was built from scratch in **under 3 hours** within a single session limit, consuming **just ~5% of the weekly quota**.
-> * **AI Pair Programming**: Other than one stubborn keyboard input bug that Gemini struggled to fix — where **Claude Opus** was brought in and pinpointed the issue in under a minute — **everything else across the original x86_64 OS was written end-to-end by Gemini**.
+> * **AI Pair Programming**: Even in the first x86_64 build, Gemini struggled with one stubborn keyboard input bug: **Claude Opus** was brought in, found the cause in under a minute, and **Gemini then implemented the fix**. Apart from that diagnosis, **the original x86_64 OS was written end-to-end by Gemini**.
 
 ### LLM Experiment: the Raspberry Pi 3 Port
 
