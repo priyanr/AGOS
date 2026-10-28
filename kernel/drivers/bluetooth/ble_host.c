@@ -270,7 +270,7 @@ static void set_state(link_state_t state) {
 
 static void set_error(const char *msg, unsigned int code) {
     snprintf(link_error, sizeof(link_error), "%s 0x%02X", msg, code);
-    printk("[BLE] %s\n", link_error);
+    ble_log("[BLE] %s\n", link_error);
 }
 
 static void l2cap_send(uint16_t cid, const uint8_t *data, uint8_t len) {
@@ -371,7 +371,7 @@ static void start_char_discovery(void) {
 static void enable_next_cccd(void) {
     if (cccd_next >= cccd_count) {
         set_state(LINK_READY);
-        printk("[BLE] Xbox controller ready: %d report(s), %d notification(s) enabled\n",
+        ble_log("[BLE] Xbox controller ready: %d report(s), %d notification(s) enabled\n",
                report_count, cccd_count);
         return;
     }

@@ -62,6 +62,14 @@ void bluetooth_init(void);
 void bluetooth_process_byte(uint8_t byte);
 void bluetooth_send_cmd(uint16_t opcode, const void *param, uint8_t param_len);
 
+// 1 = on-screen Bluetooth debug rows (radio, link, GATT table, last notification, gamepad state)
+//     and [BLE] runtime messages on screen; they draw over Paratrooper.
+// 0 = no debug rows; [BLE] runtime messages go to the serial port only.
+#define BLE_DEBUG_SCREEN 0
+
+// Runtime Bluetooth message: on screen and serial with BLE_DEBUG_SCREEN, else serial only
+void ble_log(const char *fmt, ...);
+
 // Raspberry Pi Broadcom BCM43438 Hardware Driver (HCI transport)
 void bcm43438_init(void);
 void bcm43438_poll(void);

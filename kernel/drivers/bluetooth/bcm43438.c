@@ -5,6 +5,7 @@
 #include <kernel/string.h>
 #include <kernel/fb.h>
 #include <drivers/sound.h>
+#include <hal/serial.h>
 
 #if defined(__aarch64__)
 #include <hal/aarch64/arm.h>
@@ -77,8 +78,22 @@ static void hud_pad(char *line, size_t size) {
     line[size - 1] = '\0';
 }
 
+void ble_log(const char *fmt, ...) {
+    char msg[128];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, args);
+    va_end(args);
+    if (BLE_DEBUG_SCREEN) {
+        printk("%s", msg);
+    } else {
+        serial_write(msg);
+    }
+}
+
 // Render On-Screen Debug HUD at the very top of the 1024x768 HDMI display
 void bcm43438_draw_debug_hud(void) {
+    if (!BLE_DEBUG_SCREEN) return;
     fb_info_t *fb = fb_get_info();
     if (!fb || !fb->address) return;
 
@@ -675,8 +690,8 @@ void bcm43438_poll(void) {
                             snprintf(ble_info_str, sizeof(ble_info_str), "Connecting to %s...", dev_name);
                             bcm43438_draw_debug_hud();
 
-                            printk("\n[BLE] *** FOUND XBOX CONTROLLER! ***\n");
-                            printk("[BLE] MAC: %02X:%02X:%02X:%02X:%02X:%02X (Type: %d)\n",
+                            ble_log("\n[BLE] *** FOUND XBOX CONTROLLER! ***\n");
+                            ble_log("[BLE] MAC: %02X:%02X:%02X:%02X:%02X:%02X (Type: %d)\n",
                                    mac[5], mac[4], mac[3], mac[2], mac[1], mac[0], peer_type);
 
                             // Stop scanning before connecting
@@ -712,7 +727,7 @@ void bcm43438_poll(void) {
                     strncpy(ble_status_str, "XBOX CONNECTED!", sizeof(ble_status_str));
                     snprintf(ble_info_str, sizeof(ble_info_str), "Active Connection Handle: 0x%04X", handle);
                     bcm43438_draw_debug_hud();
-                    printk("[BLE] Successfully connected! Conn Handle: 0x%04X\n", handle);
+                    ble_log("[BLE] Successfully connected! Conn Handle: 0x%04X\n", handle);
                     xbox_ble_set_connected(true);
                     // buf[5] = peer address type, buf[6..11] = peer address
                     ble_host_on_connect(handle, buf[5], &buf[6]);
