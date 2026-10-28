@@ -99,7 +99,6 @@ else ifeq ($(ARCH),aarch64)
                         kernel/drivers/bluetooth/hci.c \
                         kernel/drivers/bluetooth/bcm43438.c \
                         kernel/drivers/bluetooth/ble_host.c \
-                        kernel/drivers/bluetooth/bcm43430a1_hcd.c \
                         kernel/drivers/bluetooth/xbox_ble.c \
                         kernel/drivers/input/gamepad.c \
                         kernel/shell/paratrooper.c \
@@ -111,9 +110,43 @@ else ifeq ($(ARCH),aarch64)
 
     AARCH64_ASM_SOURCES = kernel/arch/aarch64/boot.S
 
+    # Third-party firmware is downloaded at build time from pinned upstream commits and never
+    # committed (Broadcom / Cypress licences; see README "Third-party firmware"):
+    #   - Raspberry Pi GPU boot files: raspberrypi/firmware, LICENCE.broadcom
+    #   - BCM43430A1 Bluetooth patchram: RPi-Distro/bluez-firmware, LICENSE.cypress
+    .DEFAULT_GOAL := all # the firmware rules below come before "all:"
+    FW_DIR        = firmware-rpi
+    RPI_FW_COMMIT = f2491b71ed49880cc8285e41e03f81b163c6cd59
+    BT_FW_COMMIT  = 1ab230d88ed3dcd871b31810b68fb5eb960801e9
+    RPI_FW_URL    = https://raw.githubusercontent.com/raspberrypi/firmware/$(RPI_FW_COMMIT)/boot
+    BT_FW_URL     = https://raw.githubusercontent.com/RPi-Distro/bluez-firmware/$(BT_FW_COMMIT)/debian/firmware/broadcom
+    RPI_FW_FILES  = $(FW_DIR)/bootcode.bin $(FW_DIR)/start.elf $(FW_DIR)/fixup.dat $(FW_DIR)/LICENCE.broadcom
+    BT_FW_FILES   = $(FW_DIR)/BCM43430A1.hcd $(FW_DIR)/LICENSE.cypress
+
+    # The patchram is linked in unchanged as a binary blob (objcopy), exposed to bcm43438.c as
+    # _binary_BCM43430A1_hcd_start / _end
+    BT_FW_OBJECT  = $(OUTPUT_DIR)/bcm43430a1_hcd.o
+
     AARCH64_C_OBJECTS = $(AARCH64_C_SOURCES:.c=.arm.o)
     AARCH64_ASM_OBJECTS = $(AARCH64_ASM_SOURCES:.S=.arm.o)
-    OBJECTS = $(AARCH64_C_OBJECTS) $(AARCH64_ASM_OBJECTS)
+    OBJECTS = $(AARCH64_C_OBJECTS) $(AARCH64_ASM_OBJECTS) $(BT_FW_OBJECT)
+
+    $(RPI_FW_FILES):
+		@$(MKDIR_P) $(FW_DIR)
+		@echo " [FIRMWARE] Downloading $(notdir $@) (raspberrypi/firmware)"
+		@curl -fsSL "$(RPI_FW_URL)/$(notdir $@)" -o $@
+
+    $(BT_FW_FILES):
+		@$(MKDIR_P) $(FW_DIR)
+		@echo " [FIRMWARE] Downloading $(notdir $@) (RPi-Distro/bluez-firmware)"
+		@curl -fsSL "$(BT_FW_URL)/$(notdir $@)" -o $@
+
+    $(BT_FW_OBJECT): $(FW_DIR)/BCM43430A1.hcd
+		@$(MKDIR_P) $(OUTPUT_DIR)
+		@echo " [FW-OBJ] $@"
+		@cd $(FW_DIR) && $(OBJCOPY) -I binary -O elf64-littleaarch64 -B aarch64 \
+			--rename-section .data=.rodata,alloc,load,readonly,data,contents \
+			BCM43430A1.hcd $(abspath $@)
 
     KERNEL_ELF = $(OUTPUT_DIR)/kernel8.elf
     KERNEL_IMG = $(OUTPUT_DIR)/kernel8.img
@@ -130,7 +163,7 @@ else ifeq ($(ARCH),aarch64)
 		@echo " [OBJCOPY] $@"
 		@$(OBJCOPY) -O binary $< $@
 
-    $(SD_IMAGE): $(KERNEL_IMG)
+    $(SD_IMAGE): $(KERNEL_IMG) $(RPI_FW_FILES) $(FW_DIR)/LICENSE.cypress
 		@echo " [SD] Generating bootable Raspberry Pi disk image..."
 		@dd if=/dev/zero of=$@ bs=1M count=64 status=none
 		@parted -s $@ mklabel msdos
@@ -140,10 +173,10 @@ else ifeq ($(ARCH),aarch64)
 		@printf "arm_64bit=1\nkernel=kernel8.img\nhdmi_force_hotplug=1\nhdmi_drive=2\nconfig_hdmi_boost=4\ndisable_overscan=1\nenable_uart=1\nuart_2ndstage=1\ncore_freq=250\ninit_uart_clock=48000000\n" > $(OUTPUT_DIR)/config.txt
 		@mcopy -i $@@@1048576 $(KERNEL_IMG) ::kernel8.img
 		@mcopy -i $@@@1048576 $(OUTPUT_DIR)/config.txt ::config.txt
-		@if [ -d firmware-rpi ]; then \
-			mcopy -i $@@@1048576 firmware-rpi/* :: ; \
-			cp -f firmware-rpi/* $(OUTPUT_DIR)/ ; \
-		fi
+		@# GPU boot files plus both licence notices (they must accompany the firmware); no device
+		@# trees: the kernel does not use one
+		@mcopy -o -i $@@@1048576 $(RPI_FW_FILES) $(FW_DIR)/LICENSE.cypress ::
+		@cp -f $(RPI_FW_FILES) $(FW_DIR)/LICENSE.cypress $(OUTPUT_DIR)/
 		@echo " [OK] $@ created."
 
     run: $(KERNEL_IMG)

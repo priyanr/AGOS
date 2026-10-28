@@ -232,8 +232,8 @@ sudo apt install -y build-essential gcc ld xorriso mtools
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/antigravity-os.git
-cd antigravity-os
+git clone https://github.com/priyanr/AGOS.git
+cd AGOS
 
 # Clean and compile kernel ELF, test ext4 image, and bootable hybrid ISO
 make clean
@@ -247,6 +247,77 @@ The build produces:
 - `kernel.elf`: The freestanding 64-bit kernel ELF executable.
 - `disk.img`: Pre-populated 32MB ext4 test storage image.
 - `antigravity-os.iso`: Hybrid bootable ISO with Limine BIOS & UEFI bootloaders.
+
+---
+
+## Running on a Raspberry Pi 3
+
+Verified on a **Raspberry Pi 3 Model B** (board revision `a02082`) with an **Xbox Wireless
+Controller** (Bluetooth LE model, e.g. 1914) on an HDMI TV. The Pi boots straight into
+Paratrooper with HDMI sound; the controller pairs over the Pi's onboard Bluetooth.
+
+### 1. Build
+
+On Ubuntu / Debian / WSL2:
+
+```bash
+sudo apt install -y build-essential gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu mtools parted curl
+make ARCH=aarch64
+```
+
+The first build downloads the Raspberry Pi boot firmware and the Bluetooth chip firmware from
+pinned upstream commits into `firmware-rpi/` (see [Third-party firmware](#third-party-firmware)).
+From Windows, `.\build.ps1 aarch64` runs the same build inside WSL.
+
+Output in `output/aarch64/`:
+
+| File | Purpose |
+|---|---|
+| `kernel8.img` | The Antigravity OS kernel (Bluetooth firmware linked in) |
+| `config.txt` | GPU firmware settings: 64-bit mode, HDMI forced on, UART clocks |
+| `bootcode.bin`, `start.elf`, `fixup.dat` | Raspberry Pi GPU boot firmware |
+| `LICENCE.broadcom`, `LICENSE.cypress` | Licences of the firmware |
+| `antigravity-rpi.img` | Ready-to-flash 64 MB SD card image containing all of the above |
+
+### 2. Prepare the microSD card
+
+Either:
+- **Flash the image**: write `output/aarch64/antigravity-rpi.img` with Raspberry Pi Imager
+  ("Use custom"), Rufus, balenaEtcher, or `sudo dd if=output/aarch64/antigravity-rpi.img of=/dev/sdX bs=4M conv=fsync`.
+- **Or copy files**: format the card as FAT32 and copy `kernel8.img`, `config.txt`,
+  `bootcode.bin`, `start.elf`, `fixup.dat` and the two licence files to its root.
+
+After a code change only `kernel8.img` needs to be copied again.
+
+### 3. Boot and pair the controller
+
+1. Insert the card, connect HDMI, power the Pi. Boot messages appear, then Paratrooper starts.
+2. **First time**: hold the controller's **pairing button** (top edge, next to USB-C) until the Xbox
+   logo flashes fast. The Pi finds it, pairs, and the logo turns solid.
+3. **Afterwards**: just switch the controller on with the Xbox button; it reconnects to the Pi,
+   also after the Pi was rebooted.
+
+### 4. Controls
+
+| Controller | Paratrooper |
+|---|---|
+| Left stick / D-pad left-right | Turn the gun |
+| A, RB or right trigger | Fire |
+| Menu (or A on the title screen) | Start a game |
+| View or Xbox button | Quit to the title screen |
+
+### 5. Troubleshooting
+
+- **Nothing on screen**: the card must be FAT32 and contain `bootcode.bin`, `start.elf`,
+  `fixup.dat`, `config.txt` and `kernel8.img` in its root.
+- **Controller does not connect**: put it in pairing mode again; make sure it is not currently
+  connected to another device (PC, console, phone).
+- **Debug screen**: set `BLE_DEBUG_SCREEN` to `1` in `include/drivers/bluetooth.h` (and optionally
+  `LAUNCH_PARATROOPER` to `0` in `kernel/arch/aarch64/kmain.c`) and rebuild. The screen then shows
+  Bluetooth link state, the controller's GATT table, live button state and HDMI audio state.
+  Details: [`docs/arm_ble_xbox_roadmap.md`](docs/arm_ble_xbox_roadmap.md).
+- **QEMU**: `make ARCH=aarch64 run` boots the kernel in QEMU's `raspi3` machine for a quick check
+  (no Bluetooth; QEMU cannot emulate the looping HDMI audio DMA).
 
 ---
 
@@ -288,6 +359,8 @@ The build produces:
 - 🏛️ [**Architecture Guide** (`docs/architecture.md`)](docs/architecture.md)
 - 📊 [**System Status & Roadmap** (`docs/status.md`)](docs/status.md)
 - 🛠️ [**Utilities & Command Reference** (`docs/utilities.md`)](docs/utilities.md)
+- 🍓 [**Raspberry Pi, Bluetooth & Xbox Controller Guide** (`docs/arm_ble_xbox_roadmap.md`)](docs/arm_ble_xbox_roadmap.md)
+- 📜 [**Change History** (`docs/history.md`)](docs/history.md)
 - 🤖 [**Agent & LLM Developer Spec** (`AGENTS.md`)](AGENTS.md)
 
 ---
@@ -295,3 +368,17 @@ The build produces:
 ## License
 
 Antigravity OS is released under the **MIT License**. See [LICENSE](LICENSE) for details.
+
+### Third-party firmware
+
+The Raspberry Pi build needs proprietary firmware that is **not** part of this repository and is
+**not** covered by the MIT License. The Makefile downloads it at build time, unmodified, from
+pinned upstream commits:
+
+| Files | Source | Licence |
+|---|---|---|
+| `bootcode.bin`, `start.elf`, `fixup.dat` | [raspberrypi/firmware](https://github.com/raspberrypi/firmware) (`boot/`) | Broadcom / Raspberry Pi, `LICENCE.broadcom`: redistribution in binary form with the notice; for use with Raspberry Pi devices only |
+| `BCM43430A1.hcd` (Bluetooth patchram, linked into `kernel8.img` unchanged) | [RPi-Distro/bluez-firmware](https://github.com/RPi-Distro/bluez-firmware) (`debian/firmware/broadcom/`) | Cypress, `LICENSE.cypress`: for use with Cypress/Broadcom chips only |
+
+Both licence texts are downloaded alongside the firmware and copied onto the SD card image. The
+Limine bootloader binaries in `limine-bin/` carry their own licence ([`limine-bin/LICENSE`](limine-bin/LICENSE)).

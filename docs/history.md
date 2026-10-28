@@ -3,6 +3,13 @@
 Append-only log of what was done and why, **newest entry first**. Older entries move to
 `docs/history-archive/<year>.md` when this file passes ~1500 lines.
 
+### Firmware licensing: download at build time, Pi deployment guide (feature/arm-ble-xbox, 2026-10-28)
+- What: Raspberry Pi boot firmware and the BCM43430A1 patchram are no longer committed; the Makefile downloads them from pinned upstream commits with their licence files, links the patchram unchanged via objcopy (no C array), and ships no device trees. Branch history rewritten to remove the binaries before the first push. README: Raspberry Pi deployment guide and third-party firmware section.
+- Why: Broadcom (LICENCE.broadcom) and Cypress (LICENSE.cypress) terms require their notices and forbid modifying/translating the firmware; device trees are GPL and unused by the kernel.
+- Touched: `Makefile`, `build.sh`, `.gitignore`, `bcm43438.c`, removed `bcm43430a1_hcd.c` and `firmware-rpi/*`, README, roadmap. Existing feature affected: SD card no longer contains .dtb files.
+- Verified: clean aarch64 build downloads all files; patchram identical to the tested one; SD image content checked.
+- Open: boot once from a freshly built card to confirm the Pi starts without device trees.
+
 ### Pi verified end to end (feature/arm-ble-xbox, 2026-10-28)
 - What: no code change; hardware check of the three previous entries.
 - Why: record that the MMU/cache speed-up, reliable HDMI audio start and the quit-to-title fix work on the Pi 3B.

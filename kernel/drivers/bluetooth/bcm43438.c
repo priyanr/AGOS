@@ -11,9 +11,12 @@
 #include <hal/aarch64/arm.h>
 #include <hal/aarch64/mailbox.h>
 
-// External embedded official Broadcom firmware patchram
-extern const size_t bcm43430a1_hcd_len;
-extern const uint8_t bcm43430a1_hcd[];
+// Broadcom/Cypress BCM43430A1 patchram, downloaded at build time and linked in unchanged by
+// the Makefile (objcopy -I binary of firmware-rpi/BCM43430A1.hcd)
+extern const uint8_t _binary_BCM43430A1_hcd_start[];
+extern const uint8_t _binary_BCM43430A1_hcd_end[];
+#define bcm43430a1_hcd     _binary_BCM43430A1_hcd_start
+#define bcm43430a1_hcd_len ((size_t)(_binary_BCM43430A1_hcd_end - _binary_BCM43430A1_hcd_start))
 
 // Raspberry Pi 3 MMIO Bases
 #define GPIO_BASE       0x3F200000

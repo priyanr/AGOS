@@ -211,10 +211,10 @@ output/
 │   ├── bootcode.bin             # 52 KB VideoCore GPU Stage 2 bootloader
 │   ├── start.elf                # 2.9 MB VideoCore GPU OS firmware
 │   ├── fixup.dat                # 7.3 KB GPU/ARM SDRAM memory splitter
-│   ├── bcm2710-rpi-3-b.dtb      # Device tree for Raspberry Pi 3 Model B
-│   ├── bcm2710-rpi-3-b-plus.dtb # Device tree for Raspberry Pi 3 Model B+
+│   ├── LICENCE.broadcom         # Licence of the GPU boot firmware (must ship with it)
+│   ├── LICENSE.cypress          # Licence of the Bluetooth patchram linked into kernel8.img
 │   ├── config.txt               # GPU firmware config (arm_64bit=1, HDMI boost, UART)
-│   ├── kernel8.img              # 49 KB raw binary loaded by VideoCore at 0x80000
+│   ├── kernel8.img              # ~105 KB raw binary loaded by VideoCore at 0x80000
 │   └── kernel8.elf              # 319 KB AArch64 ELF with debug symbols
 │
 └── x86_64/
@@ -235,7 +235,7 @@ output/
 ### 6.2 Raspberry Pi Hardware Boot Chain Note
 Unlike x86 PCs, the Raspberry Pi's ARM CPU cannot boot from cold power. The Broadcom VideoCore GPU boot ROM must first load `bootcode.bin` and `start.elf`. Without these files on the FAT32 partition, the green ACT LED remains dark and the board will not power the ARM CPU or HDMI controller.
 
-The automated build script (`build.sh aarch64`) automatically fetches and packages these required files into both `output/aarch64/` and `antigravity-rpi.img`.
+The Makefile (`make ARCH=aarch64`, also run by `build.sh aarch64`) downloads these files from a pinned raspberrypi/firmware commit, plus the BCM43430A1 Bluetooth patchram from a pinned RPi-Distro/bluez-firmware commit, into `firmware-rpi/` (git-ignored, never committed for licence reasons), and packages them with their licence files into `output/aarch64/` and `antigravity-rpi.img`. No device tree is shipped: the kernel does not use one.
 
 ### 6.3 Flashing to Physical MicroSD Card
 

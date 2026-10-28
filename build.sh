@@ -74,21 +74,6 @@ install_dependencies() {
     fi
 }
 
-# Ensure official Raspberry Pi 3 GPU bootloader firmware files exist
-ensure_rpi_firmware() {
-    local fw_dir="firmware-rpi"
-    mkdir -p "$fw_dir"
-    local base_url="https://raw.githubusercontent.com/raspberrypi/firmware/master/boot"
-    local files=("bootcode.bin" "start.elf" "fixup.dat" "bcm2710-rpi-3-b.dtb" "bcm2710-rpi-3-b-plus.dtb")
-
-    for f in "${files[@]}"; do
-        if [ ! -f "$fw_dir/$f" ]; then
-            echo " [FIRMWARE] Downloading Raspberry Pi boot file: $f..."
-            curl -sL "$base_url/$f" -o "$fw_dir/$f" || wget -q "$base_url/$f" -O "$fw_dir/$f"
-        fi
-    done
-}
-
 build_architecture() {
     local arch="$1"
     echo ""
@@ -97,10 +82,8 @@ build_architecture() {
     echo " Output directory: output/${arch}"
     echo "=========================================================="
 
-    if [ "$arch" = "aarch64" ]; then
-        ensure_rpi_firmware
-    fi
-
+    # For aarch64 the Makefile downloads the Raspberry Pi and Bluetooth firmware itself
+    # (pinned upstream commits, see Makefile FW_DIR)
     make ARCH="${arch}" all
 
     echo ""

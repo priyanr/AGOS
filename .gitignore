@@ -17,3 +17,6 @@ __pycache__/
 # IDE / Tool configs
 .claude/
 .vscode/
+
+# Third-party firmware: downloaded by the Makefile, never committed (licences)
+firmware-rpi/
