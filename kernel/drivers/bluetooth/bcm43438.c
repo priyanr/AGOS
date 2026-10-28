@@ -131,12 +131,18 @@ void bcm43438_draw_debug_hud(void) {
     fb_draw_string_at(0, 5, line3, 0x00F472B6, 0x000F172A); // Pink on dark slate
     fb_draw_string_at(0, 6, line5, 0x00C4B5FD, 0x000F172A); // Lavender on dark slate
 
+    // Row 12: raw bytes of the last notification (row 13 is the gamepad state line in kmain)
+    char notify[96];
+    snprintf(notify, sizeof(notify), "[NOTIFY   ] %s", ble_host_last_notify_line());
+    hud_pad(notify, sizeof(notify));
+    fb_draw_string_at(0, 12, notify, 0x0086EFAC, 0x000F172A); // Light green on dark slate
+
     // Rows 8..11: GATT attribute table from discovery (row 7 is kept for CPU exceptions)
     for (int i = 0; i < 4; i++) {
         char gatt[96];
         char attrs[88];
         if (!ble_host_attr_line(i, attrs, sizeof(attrs))) break;
-        snprintf(gatt, sizeof(gatt), "[GATT %d] %s", i, attrs);
+        snprintf(gatt, sizeof(gatt), "[G%d] %s", i, attrs); // 5 + 11 x 8 chars fits the 95-column line
         hud_pad(gatt, sizeof(gatt));
         fb_draw_string_at(0, (uint32_t)(8 + i), gatt, 0x00FDE68A, 0x000F172A); // Pale yellow on dark slate
     }

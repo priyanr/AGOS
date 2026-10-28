@@ -78,5 +78,6 @@ void ble_host_on_acl(uint16_t handle_flags, const uint8_t *data, uint16_t len);
 void ble_host_poll(void);
 const char *ble_host_status_line(void);
 bool ble_host_attr_line(int line_index, char *out, size_t size);
+const char *ble_host_last_notify_line(void);
 
 #endif // DRIVERS_BLUETOOTH_H

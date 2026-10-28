@@ -99,6 +99,10 @@ static uint16_t cccd_handles[MAX_REPORTS];
 static int cccd_count = 0;
 static int cccd_next = 0;
 static uint32_t reports_received = 0;
+static uint32_t notifications_received = 0;
+static uint16_t last_notify_handle = 0;
+static uint16_t last_notify_len = 0;
+static uint8_t last_notify_data[20];
 
 // Diagnostics for the [BLE LINK] debug line
 static int find_info_responses = 0;
@@ -458,14 +462,28 @@ static uint16_t find_cccd(uint16_t value_handle) {
     return (uint16_t)(value_handle + 1);
 }
 
+// Subscribe to every CCCD in the attribute table. The Xbox controller has more than one input
+// report and the attribute table does not reliably say which carries the gamepad state, so we
+// take them all (what ESP32 Xbox libraries do too); a CCCD that refuses 0x0001 just answers with
+// an ATT error, which enable_next_cccd() skips. Falls back to the CCCDs found from Read By Type.
+static void finish_char_discovery(void) {
+    int from_table = 0;
+    for (int i = 0; i < attr_count && from_table < MAX_REPORTS; i++) {
+        if (attr_types[i] == UUID_CCCD) cccd_handles[from_table++] = attr_handles[i];
+    }
+    if (from_table > 0) cccd_count = from_table;
+    cccd_next = 0;
+    set_state(LINK_ENABLING);
+    enable_next_cccd();
+}
+
 // Read By Type response: entries of [declaration handle, properties, value handle, UUID]
 static void handle_read_chars_rsp(const uint8_t *d, uint16_t len) {
     if (len < 2) return;
     uint8_t entry_len = d[1];
     if (entry_len != 7 && entry_len != 21) { // 16-bit or 128-bit characteristic UUID
         set_error("Bad char entry length", entry_len);
-        set_state(LINK_ENABLING);
-        enable_next_cccd();
+        finish_char_discovery();
         return;
     }
     uint16_t last_decl = 0;
@@ -489,18 +507,10 @@ static void handle_read_chars_rsp(const uint8_t *d, uint16_t len) {
     }
 
     if (last_decl == 0 || last_decl == 0xFFFF) {
-        set_state(LINK_ENABLING);
-        enable_next_cccd();
+        finish_char_discovery();
     } else {
         send_read_chars((uint16_t)(last_decl + 1));
     }
-}
-
-static bool is_report_handle(uint16_t handle) {
-    for (int i = 0; i < report_count; i++) {
-        if (report_handles[i] == handle) return true;
-    }
-    return false;
 }
 
 static void handle_att(const uint8_t *d, uint16_t len) {
@@ -519,8 +529,7 @@ static void handle_att(const uint8_t *d, uint16_t len) {
         } else if (d[1] == ATT_READ_BY_TYPE_REQ && link_state == LINK_CHARS) {
             // 0x0A Attribute Not Found: no more characteristic declarations
             if (d[4] != 0x0A) set_error("Char discovery error", d[4]);
-            set_state(LINK_ENABLING);
-            enable_next_cccd();
+            finish_char_discovery();
         } else if (d[1] == ATT_WRITE_REQ && link_state == LINK_ENABLING) {
             set_error("CCCD write error", d[4]);
             enable_next_cccd();
@@ -546,9 +555,17 @@ static void handle_att(const uint8_t *d, uint16_t len) {
             uint8_t confirm = ATT_CONFIRM;
             l2cap_send(L2CAP_CID_ATT, &confirm, 1);
         }
-        if (len >= 3 && is_report_handle((uint16_t)(d[1] | (d[2] << 8)))) {
-            reports_received++;
-            xbox_ble_parse_report(&d[3], (size_t)(len - 3));
+        if (len >= 3) {
+            // Any notification big enough to be the gamepad report is parsed; battery level
+            // (1 byte) and other small reports are only counted
+            notifications_received++;
+            last_notify_handle = (uint16_t)(d[1] | (d[2] << 8));
+            last_notify_len = (uint16_t)(len - 3);
+            memcpy(last_notify_data, &d[3], last_notify_len < sizeof(last_notify_data) ? last_notify_len : sizeof(last_notify_data));
+            if (last_notify_len >= sizeof(xbox_ble_report_t)) {
+                reports_received++;
+                xbox_ble_parse_report(&d[3], last_notify_len);
+            }
         }
         return;
     default:
@@ -606,6 +623,8 @@ void ble_host_on_connect(uint16_t handle, uint8_t addr_type, const uint8_t addr[
     memcpy(peer_addr, addr, 6);
     link_error[0] = '\0';
     reports_received = 0;
+    notifications_received = 0;
+    last_notify_len = 0;
 
     if (bond_valid && memcmp(bond_addr, addr, 6) == 0) {
         encrypting_with_bond = true;
@@ -676,13 +695,30 @@ void ble_host_poll(void) {
 
 const char *ble_host_status_line(void) {
     static char line[96];
-    // fi = Find Information responses, at = attributes recorded, ch = characteristics listed,
-    // last = highest handle, e = last ATT error (request opcode / error code), ltk = pairing key received
-    snprintf(line, sizeof(line), "%s|fi:%d at:%d ch:%d last:%04X e:%02X/%02X ltk:%d rep:%d cccd:%d rx:%d %s",
+    // at = attributes recorded, ch = characteristics listed, e = last ATT error (request / code),
+    // ltk = pairing key received, rep/cccd = reports found / notifications switched on,
+    // nt = notifications of any size, rx = gamepad-sized reports parsed
+    snprintf(line, sizeof(line), "%s|at:%d ch:%d e:%02X/%02X ltk:%d rep:%d cccd:%d nt:%d rx:%d %s",
              connected ? link_state_names[link_state] : "NO LINK",
-             find_info_responses, attr_count, chars_seen, (unsigned int)last_attr_handle,
+             attr_count, chars_seen,
              (unsigned int)last_att_error_req, (unsigned int)last_att_error_code, ltk_received ? 1 : 0,
-             report_count, cccd_count, (int)reports_received, link_error);
+             report_count, cccd_count, (int)notifications_received, (int)reports_received, link_error);
+    return line;
+}
+
+// Last notification as "handle len: bytes" for the debug screen
+const char *ble_host_last_notify_line(void) {
+    static char line[96];
+    if (notifications_received == 0) {
+        snprintf(line, sizeof(line), "no notifications yet (cccd handles:%s%02X %02X %02X)",
+                 cccd_count ? " " : " none ", cccd_count > 0 ? cccd_handles[0] : 0,
+                 cccd_count > 1 ? cccd_handles[1] : 0, cccd_count > 2 ? cccd_handles[2] : 0);
+        return line;
+    }
+    int n = snprintf(line, sizeof(line), "h:%02X len:%d:", (unsigned int)last_notify_handle, (int)last_notify_len);
+    for (int i = 0; i < last_notify_len && i < (int)sizeof(last_notify_data) && n + 3 < (int)sizeof(line); i++) {
+        n += snprintf(&line[n], sizeof(line) - (size_t)n, " %02X", last_notify_data[i]);
+    }
     return line;
 }
 

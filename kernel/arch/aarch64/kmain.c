@@ -110,16 +110,39 @@ void kmain_aarch64(void) {
     printk("[INIT] Initializing Sound Driver (VCHIQ HDMI Audio)...\n");
     sound_init();
 
+    // Temporary: stay on a Bluetooth debug screen instead of launching Paratrooper, so the
+    // debug lines stay readable until pairing and button reports work. Set to 1 to restore.
+#define LAUNCH_PARATROOPER 0
+#if LAUNCH_PARATROOPER
     printk("\n[SYSTEM] AArch64 Kernel ready. Launching Paratrooper...\n");
     if (has_fb) {
         cmd_paratrooper(0, NULL);
     }
+#else
+    printk("\n[SYSTEM] AArch64 Kernel ready. Bluetooth debug screen (Paratrooper disabled).\n");
+    if (has_fb) {
+        fb_clear(0x000F172A);
+    }
+#endif
 
+    uint32_t loops = 0;
     while (1) {
         bcm43438_poll();
         if (serial_received()) {
             char c = serial_getchar();
             serial_putchar(c);
+        }
+
+        // Live gamepad state on row 13, so button presses are visible without the game
+        if (has_fb && (++loops % 50) == 0) {
+            gamepad_state_t gp;
+            gamepad_get_state(&gp);
+            char line[96];
+            snprintf(line, sizeof(line),
+                     "[GAMEPAD  ] conn:%d buttons:%04X LX:%6d LY:%6d RX:%6d RY:%6d LT:%4d RT:%4d   ",
+                     gp.connected ? 1 : 0, (unsigned int)gp.buttons, gp.stick_lx, gp.stick_ly,
+                     gp.stick_rx, gp.stick_ry, gp.trigger_l, gp.trigger_r);
+            fb_draw_string_at(0, 13, line, 0x0067E8F9, 0x000F172A); // Cyan on dark slate
         }
         arm_delay(1000);
     }
