@@ -3,6 +3,13 @@
 Append-only log of what was done and why, **newest entry first**. Older entries move to
 `docs/history-archive/<year>.md` when this file passes ~1500 lines.
 
+### Pi verified end to end (feature/arm-ble-xbox, 2026-10-28)
+- What: no code change; hardware check of the three previous entries.
+- Why: record that the MMU/cache speed-up, reliable HDMI audio start and the quit-to-title fix work on the Pi 3B.
+- Touched: `docs/status.md`.
+- Verified: full Paratrooper games with the Xbox controller at normal speed, sound after repeated power-unplug reboots, View / Xbox button returns to the title screen.
+- Open: none.
+
 ### Blank screen on the Pi was Paratrooper quitting (feature/arm-ble-xbox, 2026-10-28)
 - What: on the Pi, `kmain` restarts Paratrooper at the title screen whenever it exits.
 - Why: View / Xbox (Guide) button (or ESC / q on serial) quits the game; on x86 that returns to the shell, on the Pi it left a black screen (the "Exited Paratrooper." line sits in the overscanned top row) while Bluetooth kept running. Pressing the Xbox button to wake the controller triggers it.
