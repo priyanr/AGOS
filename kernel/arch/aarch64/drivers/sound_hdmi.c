@@ -52,7 +52,6 @@
 #define DMA_DREQ_HDMI            17
 
 // ARM physical -> VideoCore bus address (uncached alias); the ARM caches are off (MMU off)
-#define BUS_ADDRESS(p)           ((uint32_t)(uintptr_t)(p) | 0xC0000000)
 
 // The firmware runs the HDMI state machine clock (HSM) at this rate; vc4_hdmi relies on it too
 #define HSM_CLOCK_HZ             163682864u

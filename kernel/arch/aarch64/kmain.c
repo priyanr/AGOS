@@ -8,20 +8,13 @@
 #include <drivers/bluetooth.h>
 #include <drivers/gamepad.h>
 #include <drivers/sound.h>
-#include <shell/paratrooper.h>
+#include <hal/platform.h>
+#include <drivers/block.h>
+#include <drivers/usb.h>
+#include <mm/pmm.h>
+#include <mm/heap.h>
 
-// Stubs for freestanding AArch64 HAL
-void sched_yield(void) {
-    __asm__ volatile("yield");
-}
-
-bool keyboard_has_char(void) {
-    return false;
-}
-
-char keyboard_getchar(void) {
-    return 0;
-}
+extern char _end[]; // linker.ld: end of the kernel image including BSS
 
 // Called from exc_unhandled in boot.S for any exception other than an EL1 IRQ; never returns
 void exception_report(uint64_t esr, uint64_t elr, uint64_t far) {
@@ -107,76 +100,48 @@ static bool rpi_init_framebuffer(uint32_t width, uint32_t height) {
     return false;
 }
 
+// Entry from boot.S: Pi HAL, memory and drivers, then the shared kernel start-up
 void kmain_aarch64(void) {
     serial_init();
-    timer_init(1000);
+    timer_init(1000); // Counter-based ms clock plus the 1 kHz scheduler tick
     mmu_init();
     rpi_set_max_arm_clock();
 
     printk("\n===================================================\n");
     printk("   Antigravity OS - AArch64 (Raspberry Pi Edition)  \n");
-    printk("   Target: ARMv8-A (Pi 3 / Pi 4 / QEMU raspi3b)    \n");
+    printk("   Target: ARMv8-A (Pi 3 / QEMU raspi3)            \n");
     printk("===================================================\n\n");
 
     printk("[BOOT] Initializing VideoCore Mailbox Framebuffer...\n");
-    bool has_fb = rpi_init_framebuffer(1024, 768);
-    if (has_fb) {
+    if (rpi_init_framebuffer(1024, 768)) {
         printk("[OK] Framebuffer allocated: 1024x768 (32bpp)\n");
-        fb_clear(0x000F172A);
-        fb_write("Antigravity OS (Raspberry Pi 64-bit)\n");
-        fb_write("Unified Gamepad & BLE Bluetooth Subsystem Active.\n\n");
+        fb_clear(0x00000000);
+        fb_write("Antigravity OS (Raspberry Pi 64-bit)\n\n");
     } else {
         printk("[WARN] Headless mode: Framebuffer allocation bypassed.\n");
     }
 
-    printk("[INIT] Initializing unified Gamepad HAL...\n");
-    gamepad_init();
+    // All RAM above the kernel image up to the GPU split is free (the boot stack is below
+    // 0x80000, the uncached GPU_SHARED block is inside the image)
+    static pmm_region_t ram;
+    ram.base = PAGE_ALIGN_UP((uint64_t)(uintptr_t)_end);
+    ram.length = rpi_arm_ram_end() - ram.base;
+    pmm_init(&ram, 1, 0);
+    heap_init();
 
-    printk("[INIT] Initializing Bluetooth HCI & Xbox BLE driver...\n");
+    gamepad_init();
+    printk("[INIT] Bluetooth (BCM43438) and Xbox controller...\n");
     bluetooth_init();
     bcm43438_init();
 
-    printk("[INIT] Initializing Sound Driver (VCHIQ HDMI Audio)...\n");
+    printk("[INIT] HDMI audio...\n");
     sound_init();
 
-    // 0 = stay on a Bluetooth debug screen instead of the game (set BLE_DEBUG_SCREEN in
-    // drivers/bluetooth.h to 1 as well to see the debug rows)
-#define LAUNCH_PARATROOPER 1
-#if LAUNCH_PARATROOPER
-    printk("\n[SYSTEM] AArch64 Kernel ready. Launching Paratrooper...\n");
-    if (has_fb) {
-        // There is no shell on the Pi: quitting the game (View / Xbox button, ESC or q on the
-        // serial console) used to leave a black screen, so start it again at the title screen
-        while (1) {
-            cmd_paratrooper(0, NULL);
-        }
-    }
-#else
-    printk("\n[SYSTEM] AArch64 Kernel ready. Bluetooth debug screen (Paratrooper disabled).\n");
-    if (has_fb) {
-        fb_clear(0x000F172A);
-    }
-#endif
+    printk("[INIT] SD card...\n");
+    sd_init();
 
-    uint32_t loops = 0;
-    while (1) {
-        bcm43438_poll();
-        if (serial_received()) {
-            char c = serial_getchar();
-            serial_putchar(c);
-        }
+    printk("[INIT] USB host and keyboard...\n");
+    usb_init();
 
-        // Live gamepad state on row 13, so button presses are visible without the game
-        if (BLE_DEBUG_SCREEN && has_fb && (++loops % 50) == 0) {
-            gamepad_state_t gp;
-            gamepad_get_state(&gp);
-            char line[96];
-            snprintf(line, sizeof(line),
-                     "[GAMEPAD  ] conn:%d buttons:%04X LX:%6d LY:%6d RX:%6d RY:%6d LT:%4d RT:%4d   ",
-                     gp.connected ? 1 : 0, (unsigned int)gp.buttons, gp.stick_lx, gp.stick_ly,
-                     gp.stick_rx, gp.stick_ry, gp.trigger_l, gp.trigger_r);
-            fb_draw_string_at(0, 13, line, 0x0067E8F9, 0x000F172A); // Cyan on dark slate
-        }
-        arm_delay(1000);
-    }
+    kernel_start();
 }

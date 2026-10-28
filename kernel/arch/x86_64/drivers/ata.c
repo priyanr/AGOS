@@ -20,53 +20,8 @@ typedef struct {
     uint8_t  drive_sel; // 0xA0 (master) or 0xB0 (slave)
 } ata_drive_info_t;
 
-static block_device_t *block_devices = NULL;
 static block_device_t ata_devices[4];
 static ata_drive_info_t ata_info[4];
-
-void block_register_device(block_device_t *dev) {
-    if (!dev) return;
-    // Avoid double register
-    block_device_t *curr = block_devices;
-    while (curr) {
-        if (curr == dev) return;
-        curr = curr->next;
-    }
-    dev->next = block_devices;
-    block_devices = dev;
-}
-
-void block_unregister_device(block_device_t *dev) {
-    if (!dev || !block_devices) return;
-    if (block_devices == dev) {
-        block_devices = dev->next;
-        return;
-    }
-    block_device_t *curr = block_devices;
-    while (curr->next) {
-        if (curr->next == dev) {
-            curr->next = dev->next;
-            return;
-        }
-        curr = curr->next;
-    }
-}
-
-block_device_t *block_get_device(const char *name) {
-    if (!name) return NULL;
-    block_device_t *dev = block_devices;
-    while (dev) {
-        if (strcmp(dev->name, name) == 0) {
-            return dev;
-        }
-        dev = dev->next;
-    }
-    return NULL;
-}
-
-block_device_t *block_get_first_device(void) {
-    return block_devices;
-}
 
 static int ata_wait_bsy(uint16_t io_base) {
     int timeout = 100000;

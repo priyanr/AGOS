@@ -1,6 +1,6 @@
 #include <sched/sched.h>
 #include <mm/heap.h>
-#include <hal/gdt.h>
+#include <hal/platform.h>
 #include <hal/cpu.h>
 #include <kernel/string.h>
 #include <kernel/printk.h>
@@ -15,8 +15,6 @@ static uint64_t next_tid = 1;
 static uint64_t next_pid = 1;
 static bool scheduler_enabled = false;
 
-extern void hal_switch_context(uint64_t **old_rsp, uint64_t *new_rsp);
-extern void thread_startup(void);
 
 static void queue_thread(thread_t *t) {
     t->state = THREAD_READY;
@@ -74,24 +72,12 @@ thread_t *thread_create(process_t *proc, const char *name, void (*entry)(void *)
     t->remaining_ticks = t->time_slice;
     t->process = proc ? proc : kernel_process;
 
-    // Set up stack for hal_switch_context:
-    // When hal_switch_context switches to this thread:
-    // It pops r15, r14, r13, r12, rbp, rbx, rflags and executes ret (jumping to thread_startup).
     uint64_t *stack_top = (uint64_t *)((uintptr_t)t->stack_base + t->stack_size);
+    t->sp = hal_thread_stack_init(stack_top, entry, arg);
 
-    *(--stack_top) = (uint64_t)thread_startup;  // Return address for ret in hal_switch_context
-    *(--stack_top) = 0x202;                     // rflags (IF=1)
-    *(--stack_top) = 0;                         // rbx
-    *(--stack_top) = 0;                         // rbp
-    *(--stack_top) = 0;                         // r12
-    *(--stack_top) = 0;                         // r13
-    *(--stack_top) = (uint64_t)arg;             // r14 (passed into thread_startup as arg)
-    *(--stack_top) = (uint64_t)entry;           // r15 (passed into thread_startup as entry function)
-
-    // Setup trampoline entry arguments via ABI registers or wrapper
-    t->rsp = stack_top;
-
+    uint64_t flags = irq_save(); // the timer IRQ may walk the run queue
     queue_thread(t);
+    irq_restore(flags);
     return t;
 }
 
@@ -120,18 +106,20 @@ void sched_init(void) {
 void sched_yield(void) {
     if (!scheduler_enabled || !run_queue) return;
 
-    cli();
+    // Keep the caller's interrupt state: a yield from the timer IRQ must return with IRQs still masked
+    uint64_t flags = irq_save();
     thread_t *prev = current_thread;
-    thread_t *next = prev->next;
+    // An exiting thread is already unlinked (next == NULL): continue from the queue head
+    thread_t *next = prev->next ? prev->next : run_queue;
 
     // Find next runnable thread
-    while (next && next->state != THREAD_READY && next->state != THREAD_RUNNING) {
+    for (thread_t *start = next; next && next->state != THREAD_READY && next->state != THREAD_RUNNING;) {
         next = next->next;
-        if (next == prev) break;
+        if (next == prev || next == start) break;
     }
 
     if (!next || next == prev || (next->state != THREAD_READY && next->state != THREAD_RUNNING)) {
-        sti();
+        irq_restore(flags);
         return;
     }
 
@@ -143,9 +131,9 @@ void sched_yield(void) {
     current_thread = next;
     current_thread->remaining_ticks = current_thread->time_slice;
 
-    // Switch TSS stack for interrupts/syscalls
+    // Stack for interrupts taken while the next thread runs (x86 TSS)
     if (next->stack_base) {
-        tss_set_rsp0((uint64_t)next->stack_base + next->stack_size);
+        hal_set_kernel_stack((uint64_t)next->stack_base + next->stack_size);
     }
 
     // Switch address space if needed
@@ -153,12 +141,11 @@ void sched_yield(void) {
         vmm_switch_address_space(&next->process->address_space);
     }
 
-    hal_switch_context(&prev->rsp, next->rsp);
-    sti();
+    hal_switch_context(&prev->sp, next->sp);
+    irq_restore(flags);
 }
 
-void scheduler_tick(interrupt_frame_t *frame) {
-    (void)frame;
+void scheduler_tick(void) {
     if (!scheduler_enabled || !current_thread) return;
 
     if (current_thread->remaining_ticks > 0) {

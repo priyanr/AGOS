@@ -63,14 +63,29 @@ static bool xbox_connected = false;
 // 16-byte aligned mailbox buffer
 static volatile uint32_t __attribute__((aligned(16))) GPU_SHARED mbox_buf[16];
 
-// RX ring filled by the UART0 IRQ handler in boot.S (irq_entry). The PL011 FIFO is only
+// RX ring filled by the UART0 IRQ handler (bcm43438_uart_irq). The PL011 FIFO is only
 // 16 bytes (~1.4 ms at 115200), far less than one Paratrooper frame, so polling loses data.
-#define BT_RX_RING_SIZE 4096  // must match the mask in boot.S
+#define BT_RX_RING_SIZE 4096  // power of two
 volatile uint8_t bt_rx_ring[BT_RX_RING_SIZE];
-volatile uint32_t bt_rx_head = 0;    // written only by irq_entry
-volatile uint32_t bt_irq_count = 0;  // diagnostics, written only by irq_entry
+volatile uint32_t bt_rx_head = 0;    // written only by bcm43438_uart_irq
+volatile uint32_t bt_irq_count = 0;  // diagnostics, written only by bcm43438_uart_irq
 volatile uint32_t bt_irq_bytes = 0;
 static uint32_t bt_rx_tail = 0;
+
+// UART0 RX interrupt (called from irq_dispatch): drain the PL011 FIFO into bt_rx_ring.
+// Reading DR until the FIFO is empty clears the RX and RX-timeout interrupts.
+void bcm43438_uart_irq(void) {
+    uint32_t head = bt_rx_head;
+    uint32_t taken = 0;
+    while (!(mmio_read32(UART0_FR) & (1 << 4))) { // RXFE: FIFO empty
+        bt_rx_ring[head] = (uint8_t)mmio_read32(UART0_DR);
+        head = (head + 1) & (BT_RX_RING_SIZE - 1);
+        taken++;
+    }
+    bt_rx_head = head;
+    bt_irq_count++;
+    bt_irq_bytes += taken;
+}
 static uint32_t bt_rx_max_fill = 0;
 static uint32_t bt_uart_errors = 0;  // PL011 RSR bits seen: 1=FE 2=PE 4=BE 8=OE
 

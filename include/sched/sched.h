@@ -3,7 +3,7 @@
 
 #include <kernel/types.h>
 #include <mm/vmm.h>
-#include <hal/idt.h>
+
 
 typedef enum {
     THREAD_EMBRYO,
@@ -20,7 +20,7 @@ typedef struct thread {
     uint64_t tid;
     char name[32];
     thread_state_t state;
-    uint64_t *rsp;
+    uint64_t *sp;          // Saved stack pointer while switched out (hal_switch_context)
     void *stack_base;
     size_t stack_size;
     uint32_t time_slice;
@@ -43,7 +43,7 @@ void sched_init(void);
 thread_t *thread_create(process_t *proc, const char *name, void (*entry)(void *), void *arg);
 process_t *process_create(const char *name);
 void sched_yield(void);
-void scheduler_tick(interrupt_frame_t *frame);
+void scheduler_tick(void); // Called by the architecture timer interrupt on every tick
 thread_t *sched_get_current_thread(void);
 process_t *sched_get_current_process(void);
 void thread_exit(void);

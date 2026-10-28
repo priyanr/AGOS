@@ -30,6 +30,27 @@ Antigravity OS is an x86_64 Long Mode operating system engineered in freestandin
 
 ---
 
+### 1.1 Source Layout: shared kernel, per-architecture HAL and drivers (2026-10-28)
+
+Everything except `kernel/arch/<arch>/` is compiled unchanged for x86_64 and AArch64: shell and
+utilities, GW-BASIC, Paratrooper, scheduler, PMM/heap, VFS, ext4, FAT32, MBR partitions, block
+registry, printk/framebuffer. The Makefile builds `COMMON_C_SOURCES` plus `kernel/arch/$(ARCH)/`.
+
+| Layer | x86_64 (`kernel/arch/x86_64/`) | AArch64 Pi 3 (`kernel/arch/aarch64/`) |
+|---|---|---|
+| Entry | `boot.c` (Limine requests, `kmain`) | `boot.S`, `kmain.c` |
+| HAL (`include/hal/platform.h`, `cpu.h`) | `platform.c`, `entry.S` (context switch), GDT/IDT/PIC/APIC, PIT | `platform.c` (IRQ dispatch, watchdog reboot), `boot.S` (IRQ entry, context switch), generic timer, `mmu.c` |
+| Memory | `vmm.c` (PML4 + HHDM) | `mmu.c` (identity map; VMM calls are no-ops) |
+| Drivers | PS/2 keyboard, PCI, ATA, AHCI, PC speaker, installer | USB (DWC2 + hub + HID keyboard), SD card (Arasan SDHCI), HDMI audio, Bluetooth |
+
+- Both entry points end in the shared `kernel_start()` (`kernel/init/main.c`): mount root, start the
+  scheduler, spawn the shell.
+- Decision: the HAL is a few plain functions (`hal_thread_stack_init`, `hal_switch_context`,
+  `hal_set_kernel_stack`, `hal_reboot`, `hal_poll_input`, `irq_save/irq_restore`, `cpu_relax`), not a
+  driver framework. Device APIs (`keyboard.h`, `sound.h`, `gamepad.h`, `block.h`) were already shared.
+- Decision: commands for hardware a machine lacks stay in the shared shell; the arch prints why
+  (`lspci` and `install` on the Pi).
+
 ## 2. Boot & Early Initialization
 
 ### 2.1 Limine Boot Protocol Handshake
@@ -56,7 +77,7 @@ The kernel defines Limine protocol requests inside the `.limine_requests` ELF se
 - **Interrupt Controllers** ([`kernel/arch/x86_64/pic.c`](file:///F:/priyan/Projects/AI/OS/kernel/arch/x86_64/pic.c) & [`kernel/arch/x86_64/apic.c`](file:///F:/priyan/Projects/AI/OS/kernel/arch/x86_64/apic.c)):
   - Dual 8259 PIC remapped to vectors `0x20..0x27` (Master) and `0x28..0x2F` (Slave).
   - Local APIC detected and initialized, with LINT0 ExtINT routed for legacy PIC compatibility.
-- **PS/2 Keyboard Controller Subsystem** ([`kernel/drivers/input/keyboard.c`](file:///F:/priyan/Projects/AI/OS/kernel/drivers/input/keyboard.c)):
+- **PS/2 Keyboard Controller Subsystem** ([`kernel/arch/x86_64/drivers/keyboard.c`](file:///F:/priyan/Projects/AI/OS/kernel/arch/x86_64/drivers/keyboard.c)):
   - 8042 controller configuration: drains residue buffer, enables port 1 (`0xAE`), reads/writes CCB (enabling IRQ1 and scan-code translation).
   - Handles PS/2 Scan Code Set 2 break code prefix `0xF0` and extended code prefix `0xE0`, accurately distinguishing key presses from key releases in virtual environments (VMware/QEMU).
   - Dynamic key tracking array `key_down[128]` with a 250ms typematic repeat debounce window to eliminate character stuttering and duplicate keystrokes.
@@ -72,7 +93,7 @@ The kernel defines Limine protocol requests inside the `.limine_requests` ELF se
 - Fast page allocation (`pmm_alloc_page()`, `pmm_alloc_pages(n)`) using bit scans and atomic page-free operations (`pmm_free_page()`).
 
 ### 3.2 Virtual Memory Manager (VMM)
-- Implemented in [`kernel/mm/vmm.c`](file:///F:/priyan/Projects/AI/OS/kernel/mm/vmm.c).
+- Implemented in [`kernel/arch/x86_64/vmm.c`](file:///F:/priyan/Projects/AI/OS/kernel/arch/x86_64/vmm.c).
 - Standard x86_64 4-level paging (PML4 -> PDP -> PD -> PT).
 - Kernel space mapped using Higher Half Direct Map (HHDM).
 - Page mapping functions (`vmm_map_page()`, `vmm_unmap_page()`) supporting write, user-mode, and cache disable flags.
@@ -98,11 +119,11 @@ The kernel defines Limine protocol requests inside the `.limine_requests` ELF se
 ## 5. Storage & Filesystem Architecture
 
 ### 5.1 Storage Driver & Partition Layer
-- **ATA PIO Driver** ([`kernel/drivers/storage/ata.c`](file:///F:/priyan/Projects/AI/OS/kernel/drivers/storage/ata.c)):
+- **ATA PIO Driver** ([`kernel/arch/x86_64/drivers/ata.c`](file:///F:/priyan/Projects/AI/OS/kernel/arch/x86_64/drivers/ata.c)):
   - Controls IDE primary (0x1F0) and secondary (0x170) channels.
   - Automatically identifies ATA hard disks vs ATAPI CD-ROM drives using signature bytes `0xEB14` / `0x9669`.
   - Supports 28-bit LBA PIO sector reads and writes with DRQ polling and hardware timeouts.
-- **AHCI / SATA Driver** ([`kernel/drivers/storage/ahci.c`](file:///F:/priyan/Projects/AI/OS/kernel/drivers/storage/ahci.c)):
+- **AHCI / SATA Driver** ([`kernel/arch/x86_64/drivers/ahci.c`](file:///F:/priyan/Projects/AI/OS/kernel/arch/x86_64/drivers/ahci.c)):
   - Discovers PCI SATA controllers (Class 01 Subclass 06) and configures ABAR (BAR5) MMIO registers.
   - Supports SATA disks (`sda`..`sdz`) with 48-bit LBA DMA read/write commands (`0x25` READ DMA EXT, `0x35` WRITE DMA EXT).
   - Provides native out-of-the-box storage compatibility for VMware Workstation/Player virtual SATA disks (`sata0:0`).
@@ -143,10 +164,11 @@ The kernel defines Limine protocol requests inside the `.limine_requests` ELF se
   - Stage 1 MBR bootcode is written to Sector 0, and Stage 2 is written to Sector 8 (`0x1000`).
 
 ### 5.5 Auto-Root Filesystem Discovery
-- Implemented in [`kernel/init/main.c`](file:///F:/priyan/Projects/AI/OS/kernel/init/main.c).
-- On kernel boot, automatically scans block devices in prioritized candidate order: `sda2`, `hda2`, `sda1`, `hda1`, `sda`, `hda`.
+- Implemented in [`kernel/init/main.c`](file:///F:/priyan/Projects/AI/OS/kernel/init/main.c) (`kernel_start()`, shared by both architectures).
+- On kernel boot, automatically scans block devices in prioritized candidate order: `sda2`, `hda2`, `sda1`, `hda1`, `sda`, `hda`, `mmc2` (ext4), then the Pi SD boot partition `mmc1` (FAT32, read-only).
 - Validates the ext4 superblock magic (`0xEF53`).
-- Mounts the first valid ext4 partition dynamically as root `/`. If no ext4 volume is present, proceeds cleanly in Live ISO boot mode.
+- Mounts the first valid volume as root `/`. If none is present, proceeds cleanly in Live ISO boot mode.
+- The shell reads `/antigravity.cfg` at start; `autostart=paratrooper` launches the game first (Pi default file sets `autostart=shell`).
 
 ---
 
@@ -166,32 +188,50 @@ The kernel defines Limine protocol requests inside the `.limine_requests` ELF se
   - Pixel-identical CGA Mode 4 (320x200, 4-color) software rendering with 2x/3x integer upscaling to linear framebuffer.
   - Native PC Speaker tone and sound effects generator using 8254 PIT Channel 2 (ports 0x42/0x43/0x61).
   - Embedded assets from `original-pt.com` and IBM CGA font data compiled directly into the kernel.
-- **Native OS Installer** ([`kernel/shell/installer.c`](file:///F:/priyan/Projects/AI/OS/kernel/shell/installer.c)):
+- **Native OS Installer** ([`kernel/arch/x86_64/installer.c`](file:///F:/priyan/Projects/AI/OS/kernel/arch/x86_64/installer.c)):
   - Automated 4-step wizard that partitions disks with dual FAT32 + ext4 layout, formats both filesystems, deploys kernel ELF, bootloader files, configuration, and Limine MBR bootsector, and hot-mounts the root filesystem.
 
 ## 7. Raspberry Pi 3 (AArch64) Port
 
-Built with `make ARCH=aarch64`; separate source list in the `Makefile`, entry in `kernel/arch/aarch64/`.
+Built with `make ARCH=aarch64`: the shared kernel plus `kernel/arch/aarch64/`.
 Details, protocol flow and debugging: [`arm_ble_xbox_roadmap.md`](arm_ble_xbox_roadmap.md).
 
 - **Boot**: the GPU firmware loads `kernel8.img` at `0x80000`; `boot.S` drops to EL1, installs the
-  EL1 vector table and zeroes BSS. The MMU stays off, so every data access is Device memory.
+  EL1 vector table and zeroes BSS. `mmu.c` then turns on an identity map with caches.
   - Decision: build with `-mstrict-align`. Without it GCC emitted unaligned stores (e.g. a 7-byte
     array on the stack), which fault with the MMU off and hung the boot silently.
   - Decision: unhandled exceptions print ESR/ELR/FAR on screen (`exception_report()`) instead of hanging.
 - **Console**: mini-UART on GPIO 14/15 (`serial.c`); the PL011 is reserved for the Bluetooth chip.
-- **Bluetooth** (`kernel/drivers/bluetooth/`):
+- **Bluetooth** (`kernel/arch/aarch64/drivers/bluetooth/`):
   - `bcm43438.c`: BT_ON via mailbox (expander GPIO 128), 32 kHz LPO on GPIO 43, PL011 on GPIO 32/33
     at 115200, patchram upload, LE scan/connect, HCI command/ACL transport.
-  - Decision: UART RX is interrupt-driven (`irq_entry` in `boot.S` fills a 4 KB ring). The PL011 FIFO
-    is 16 bytes, which overflowed during one Paratrooper frame and lost advertisements. The handler is
-    pure assembly so it cannot clobber the FP/SIMD registers the C code uses.
+  - Decision: UART RX is interrupt-driven (`bcm43438_uart_irq` fills a 4 KB ring). The PL011 FIFO
+    is 16 bytes, which overflowed during one Paratrooper frame and lost advertisements.
   - `ble_host.c`: own minimal BLE host for one controller (L2CAP, SMP legacy Just Works with software
     AES-128, ATT/GATT). Decision: no third-party stack; the Xbox controller only needs one bonded,
     encrypted link with HID notifications, and the full HID-host sequence (bond, identity keys, read
     HID values, then subscribe) is what makes pairing mode finish.
   - `xbox_ble.c`: HID report to Gamepad HAL. Paratrooper reads the HAL, not Bluetooth.
-- **Audio** (`kernel/arch/aarch64/sound_hdmi.c`): HDMI MAI FIFO fed by DMA channel 5 (DREQ 17) from a
+- **Audio** (`kernel/arch/aarch64/drivers/sound_hdmi.c`): HDMI MAI FIFO fed by DMA channel 5 (DREQ 17) from a
   looping buffer of IEC958 subframes. Decision: drive the HDMI audio hardware directly (Linux vc4_hdmi
   sequence) instead of VCHIQ, which needs a large shared-memory protocol with the GPU.
-- **Debug flags**: `BLE_DEBUG_SCREEN` (`include/drivers/bluetooth.h`) and `LAUNCH_PARATROOPER` (`kmain.c`).
+- **Shared kernel on the Pi** (2026-10-28): `kmain_aarch64` brings up the HAL and drivers and calls
+  `kernel_start()`, so the Pi runs the same shell, GW-BASIC, scheduler, VFS and filesystems as x86
+  (see 1.1). Boots to the shell; `autostart=paratrooper` in `antigravity.cfg` on the SD card starts the game.
+  - Interrupts: `irq_entry` (boot.S) saves x0-x18, x29, x30, ELR, SPSR and calls `irq_dispatch()`
+    (platform.c): EL1 physical timer at 1 kHz (scheduler tick, routed via the core-0 local
+    controller) and the Bluetooth UART RX drain (`bcm43438_uart_irq`).
+  - Decision: the Pi build uses `-mgeneral-regs-only`. The context switch saves only general
+    registers (as on x86 with `-mno-sse`), so no C code may use FP/SIMD registers.
+  - Polled devices (Bluetooth, USB) are serviced by `hal_poll_input()` from every input wait loop,
+    with a busy flag so only one thread polls at a time.
+- **USB keyboard** (`drivers/usb_dwc2.c`, `drivers/usb_keyboard.c`): DWC2 host with internal DMA,
+  polled, one channel, one packet at a time. The Pi 3B root device is the LAN9514 hub, so keyboards
+  are low/full-speed behind a high-speed hub: split transactions, with interrupt start-splits timed
+  to the microframe (Circle/USPi scheme). Hub ports are re-scanned once a second while no keyboard is
+  attached (hot-plug). HID boot protocol, US layout, key repeat in software; arrow keys map to the
+  same '4' '6' '8' '5' as the PS/2 driver.
+- **SD card** (`drivers/sd_emmc.c`): Arasan SDHCI, PIO, 1-bit, single-block commands; GPIO 48-53
+  switched from SDHOST (used by the firmware) to ALT3. Registered as block device `mmc`.
+- **FAT32** (`kernel/fs/fat32/fat32.c`, shared): read-only, long file names; mounts the boot partition.
+- **Debug flag**: `BLE_DEBUG_SCREEN` (`include/drivers/bluetooth.h`).

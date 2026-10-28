@@ -2,9 +2,16 @@
 #define MM_PMM_H
 
 #include <kernel/types.h>
-#include <limine.h>
 
-void pmm_init(struct limine_memmap_response *memmap, uint64_t hhdm_offset);
+// A range of RAM the kernel may allocate from (the boot code builds the list: Limine memory
+// map on x86, the firmware's ARM memory split on the Pi)
+typedef struct {
+    paddr_t base;
+    uint64_t length;
+} pmm_region_t;
+
+// The bitmap is carved from the first region large enough; regions may be modified
+void pmm_init(pmm_region_t *regions, size_t count, uint64_t hhdm_offset);
 paddr_t pmm_alloc_page(void);
 paddr_t pmm_alloc_pages(size_t count);
 void pmm_free_page(paddr_t addr);

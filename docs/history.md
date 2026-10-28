@@ -2,6 +2,13 @@
 
 Append-only log of what was done and why, **newest entry first**. Older entries move to
 `docs/history-archive/<year>.md` when this file passes ~1500 lines.
+### One kernel for both CPUs: shell and utilities on the Pi, USB keyboard, SD card (feature/arm-ble-xbox, 2026-10-28)
+- What: everything outside `kernel/arch/<arch>/` is now shared (shell, utilities, GW-BASIC, scheduler, PMM/heap, VFS, ext4, new read-only FAT32, partitions); x86 PC drivers moved to `kernel/arch/x86_64/`, Pi drivers to `kernel/arch/aarch64/drivers/`. New HAL (`hal/platform.h`) and shared `kernel_start()`. Pi: generic-timer tick and IRQ dispatch in C, context switch, SD card driver, DWC2 USB host with hub and HID keyboard.
+- Why: user request: only HAL and drivers may differ per architecture; Pi defaults to the shell unless a config file on the filesystem says otherwise.
+- Touched: Makefile (shared source list, `-mgeneral-regs-only` on ARM, `antigravity.cfg` in the SD image), sched, pmm, vmm.h, shell/gwbasic/paratrooper input loops. Existing features affected: Pi boots to the shell instead of the game loop (`LAUNCH_PARATROOPER` removed; `autostart=paratrooper` restores the game at boot, quitting opens the shell); x86 shell no longer freezes after `threads` (scheduler fix); x86 boot log says "Root filesystem mounted" instead of "ext4 root filesystem mounted".
+- Verified: both architectures build with 0 warnings; x86 in QEMU (ext4 root, ls, threads, uname); Pi in QEMU raspi3 (SD, FAT32 ls/cat, config autostart, threads, GW-BASIC, fdisk) with audio init skipped (QEMU DMA hang, pre-existing). Not verified on hardware; USB not testable in QEMU 4.2.
+- Open: Pi hardware test of SD card, USB keyboard, Bluetooth and audio with the new IRQ path.
+
 
 ### Firmware licensing: download at build time, Pi deployment guide (feature/arm-ble-xbox, 2026-10-28)
 - What: Raspberry Pi boot firmware and the BCM43430A1 patchram are no longer committed; the Makefile downloads them from pinned upstream commits with their licence files, links the patchram unchanged via objcopy (no C array), and ships no device trees. Branch history rewritten to remove the binaries before the first push. README: Raspberry Pi deployment guide and third-party firmware section.

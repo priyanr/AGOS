@@ -21,16 +21,13 @@ static inline bool bitmap_test(size_t bit) {
     return (bitmap[bit / 8] & (1 << (bit % 8))) != 0;
 }
 
-void pmm_init(struct limine_memmap_response *memmap, uint64_t hhdm_offset) {
+void pmm_init(pmm_region_t *regions, size_t count, uint64_t hhdm_offset) {
     hhdm = hhdm_offset;
     uint64_t highest_addr = 0;
 
-    for (uint64_t i = 0; i < memmap->entry_count; i++) {
-        struct limine_memmap_entry *entry = memmap->entries[i];
-        if (entry->type == LIMINE_MEMMAP_USABLE) {
-            total_memory += entry->length;
-        }
-        uint64_t top = entry->base + entry->length;
+    for (size_t i = 0; i < count; i++) {
+        total_memory += regions[i].length;
+        uint64_t top = regions[i].base + regions[i].length;
         if (top > highest_addr) {
             highest_addr = top;
         }
@@ -40,12 +37,11 @@ void pmm_init(struct limine_memmap_response *memmap, uint64_t hhdm_offset) {
     bitmap_size = PAGE_ALIGN_UP(max_pages / 8);
 
     // Find a usable region to store the bitmap
-    for (uint64_t i = 0; i < memmap->entry_count; i++) {
-        struct limine_memmap_entry *entry = memmap->entries[i];
-        if (entry->type == LIMINE_MEMMAP_USABLE && entry->length >= bitmap_size) {
-            bitmap = (uint8_t *)(entry->base + hhdm);
-            entry->base += bitmap_size;
-            entry->length -= bitmap_size;
+    for (size_t i = 0; i < count; i++) {
+        if (regions[i].length >= bitmap_size) {
+            bitmap = (uint8_t *)(regions[i].base + hhdm);
+            regions[i].base += bitmap_size;
+            regions[i].length -= bitmap_size;
             break;
         }
     }
@@ -60,15 +56,12 @@ void pmm_init(struct limine_memmap_response *memmap, uint64_t hhdm_offset) {
 
     // Mark usable areas as free
     free_memory = 0;
-    for (uint64_t i = 0; i < memmap->entry_count; i++) {
-        struct limine_memmap_entry *entry = memmap->entries[i];
-        if (entry->type == LIMINE_MEMMAP_USABLE) {
-            uint64_t start_page = entry->base / PAGE_SIZE;
-            uint64_t page_count = entry->length / PAGE_SIZE;
-            for (uint64_t p = 0; p < page_count; p++) {
-                bitmap_clear(start_page + p);
-                free_memory += PAGE_SIZE;
-            }
+    for (size_t i = 0; i < count; i++) {
+        uint64_t start_page = regions[i].base / PAGE_SIZE;
+        uint64_t page_count = regions[i].length / PAGE_SIZE;
+        for (uint64_t p = 0; p < page_count; p++) {
+            bitmap_clear(start_page + p);
+            free_memory += PAGE_SIZE;
         }
     }
 

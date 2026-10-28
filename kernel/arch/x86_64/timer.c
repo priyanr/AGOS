@@ -10,14 +10,15 @@
 static volatile uint64_t timer_ticks = 0;
 static uint32_t timer_freq = 100;
 
-extern void scheduler_tick(interrupt_frame_t *frame); // Hook for scheduler preemption
+#include <sched/sched.h>
 
 static void pit_irq_handler(interrupt_frame_t *frame) {
     timer_ticks++;
     pic_send_eoi(0);
 
     // Call scheduler preemptive tick if registered
-    scheduler_tick(frame);
+    (void)frame;
+    scheduler_tick();
 }
 
 void timer_init(uint32_t frequency) {

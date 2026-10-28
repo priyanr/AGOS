@@ -34,7 +34,7 @@
    - Integrated Microsoft GW-BASIC (1983) interpreter binary.
    - Built-in Paratrooper (1982) Orion Software CGA arcade game (`paratrooper`).
    - Native hard drive installer (`install`) automating dual-partition deployment (64MB FAT32 boot partition + ext4 root partition), Limine MBR bootloader installation, and live root hot-mounting.
-7. **Raspberry Pi 3 (AArch64) port** (`make ARCH=aarch64`): boots `kernel8.img` from the GPU firmware, mailbox framebuffer, HDMI audio, Xbox Wireless Controller over Bluetooth LE driving Paratrooper. See `docs/arm_ble_xbox_roadmap.md`.
+7. **Raspberry Pi 3 (AArch64) port** (`make ARCH=aarch64`): the same shared kernel, shell and utilities; only `kernel/arch/<arch>/` (HAL + drivers) differs. Pi drivers: mailbox framebuffer, SD card (FAT32 boot partition as `/`), USB keyboard, HDMI audio, Xbox Wireless Controller over Bluetooth LE. See `docs/architecture.md` 1.1 and `docs/arm_ble_xbox_roadmap.md`.
 
 ## Documentation References
 - [`docs/architecture.md`](docs/architecture.md): Complete technical architecture, subsystem interaction diagrams, memory layouts, and driver designs.

@@ -4,6 +4,7 @@
 #include <kernel/fb.h>
 #include <hal/serial.h>
 #include <hal/cpu.h>
+#include <hal/platform.h>
 #include <drivers/keyboard.h>
 #include <drivers/pci.h>
 #include <mm/pmm.h>
@@ -21,8 +22,9 @@
 #define MAX_LINE 256
 #define MAX_ARGS 16
 
-static char getchar_any(void) {
+char console_getchar(void) {
     while (1) {
+        hal_poll_input();
         if (keyboard_has_char()) {
             return keyboard_getchar();
         }
@@ -30,7 +32,7 @@ static char getchar_any(void) {
             return serial_getchar();
         }
         sched_yield();
-        __asm__ volatile ("pause");
+        cpu_relax();
     }
 }
 
@@ -38,7 +40,7 @@ static void readline(char *buf, size_t max) {
     size_t pos = 0;
     while (1) {
         fb_draw_cursor(true);
-        char c = getchar_any();
+        char c = console_getchar();
         fb_draw_cursor(false);
 
         if (c == '\r' || c == '\n') {
@@ -81,7 +83,7 @@ static void cmd_help(void) {
 }
 
 static void cmd_uname(void) {
-    printk("AntigravityOS 1.0.0-preempt (x86_64) SMP\n");
+    printk("AntigravityOS 1.0.0-preempt (" HAL_ARCH_NAME ") SMP\n");
     uint64_t ticks = timer_get_ticks();
     printk("Uptime: %llu ms (timer: 1000 Hz, %llu.%03llu s)\n", ticks, ticks / 1000, ticks % 1000);
 }
@@ -283,12 +285,7 @@ static void cmd_threads(void) {
 
 static void cmd_reboot(void) {
     printk("Rebooting hardware...\n");
-    uint8_t good = 0x02;
-    while (good & 0x02) {
-        good = inb(0x64);
-    }
-    outb(0x64, 0xFE); // Pulse reset line
-    hlt();
+    hal_reboot();
 }
 
 static void execute_line(char *line) {
@@ -354,10 +351,54 @@ void shell_init(void) {
     printk("=========================================\n\n");
 }
 
+// Value of "key=value" in /antigravity.cfg (lines starting with '#' are comments). On the Pi
+// that file is on the SD card's FAT32 boot partition, so it can be edited on any PC.
+static bool config_value(const char *key, char *out, size_t max) {
+    vfs_node_t *file = vfs_open("/antigravity.cfg", 0);
+    if (!file || (file->flags & FS_DIRECTORY)) return false;
+
+    char text[1024];
+    ssize_t len = vfs_read(file, 0, sizeof(text) - 1, text);
+    if (len <= 0) return false;
+    text[len] = '\0';
+
+    size_t key_len = strlen(key);
+    char *p = text;
+    while (*p) {
+        char *eol = p;
+        while (*eol && *eol != '\n') eol++;
+        char *next = *eol ? eol + 1 : eol;
+        *eol = '\0';
+
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p != '#' && strncmp(p, key, key_len) == 0 && p[key_len] == '=') {
+            p += key_len + 1;
+            size_t n = 0;
+            while (p[n] && p[n] != '\r' && p[n] != ' ' && p[n] != '\t' && n < max - 1) {
+                out[n] = p[n];
+                n++;
+            }
+            out[n] = '\0';
+            return true;
+        }
+        p = next;
+    }
+    return false;
+}
+
 void shell_run(void *arg) {
     (void)arg;
-    shell_init();
     char line[MAX_LINE];
+
+    // autostart=paratrooper starts the game at boot; quitting it opens the shell
+    char autostart[32];
+    if (config_value("autostart", autostart, sizeof(autostart)) && strcmp(autostart, "paratrooper") == 0) {
+        printk("[CONFIG] autostart=paratrooper (antigravity.cfg)\n");
+        cmd_paratrooper(0, NULL);
+        fb_clear(0x00000000);
+    }
+
+    shell_init();
 
     while (1) {
         printk("root@antigravity:%s# ", vfs_getcwd());

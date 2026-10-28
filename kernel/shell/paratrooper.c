@@ -3,11 +3,11 @@
 #include <kernel/string.h>
 #include <kernel/printk.h>
 #include <hal/cpu.h>
+#include <hal/platform.h>
 #include <hal/timer.h>
 #include <hal/serial.h>
 #include <drivers/keyboard.h>
 #include <drivers/gamepad.h>
-#include <drivers/bluetooth.h>
 #include <drivers/sound.h>
 #include <sched/sched.h>
 #include <shell/paratrooper.h>
@@ -319,9 +319,7 @@ static void poll_gamepad_input(void) {
 }
 
 static void poll_input(void) {
-#if defined(__aarch64__)
-    bcm43438_poll();
-#endif
+    hal_poll_input(); // Pi: Bluetooth controller and USB keyboard
     poll_gamepad_input();
     while (keyboard_has_char()) {
         char c = keyboard_getchar();
@@ -354,11 +352,7 @@ static void wait_one_tick(void) {
     while (timer_get_ticks() - start_ms < 55) {
         poll_input();
         sched_yield();
-#if defined(__x86_64__) || defined(_M_X64)
-        __asm__ volatile ("pause");
-#elif defined(__aarch64__)
-        __asm__ volatile ("yield");
-#endif
+        cpu_relax();
     }
     ticks++;
 }

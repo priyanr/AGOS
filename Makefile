@@ -2,6 +2,10 @@ ARCH ?= x86_64
 
 OUTPUT_DIR = output/$(ARCH)
 
+# Shared kernel (shell, utilities, scheduler, memory, filesystems, libraries) builds unchanged
+# for every architecture; only kernel/arch/<arch>/ (HAL + device drivers) differs
+COMMON_C_SOURCES = $(shell find kernel -name "*.c" ! -path "kernel/arch/*")
+
 # Common directories and tools
 MKDIR_P = mkdir -p
 
@@ -17,8 +21,7 @@ ifeq ($(ARCH),x86_64)
 
     LDFLAGS = -m elf_x86_64 -nostdlib -static -no-pie -z max-page-size=0x1000 -T linker.ld
 
-    # Exclude other architectures (aarch64) from x86_64 build
-    C_SOURCES = $(shell find kernel -name "*.c" ! -path "kernel/arch/aarch64/*")
+    C_SOURCES = $(COMMON_C_SOURCES) $(shell find kernel/arch/x86_64 -name "*.c")
     ASM_SOURCES = kernel/arch/x86_64/entry.S
 
     C_OBJECTS = $(C_SOURCES:.c=.o)
@@ -85,28 +88,12 @@ else ifeq ($(ARCH),aarch64)
     OBJCOPY = $(CROSS_COMPILE)objcopy
 
     CFLAGS = -Wall -Wextra -std=gnu11 -ffreestanding -fno-stack-protector \
-             -fno-stack-check -fno-lto -fno-pie -fno-pic -mstrict-align \
+             -fno-stack-check -fno-lto -fno-pie -fno-pic -mstrict-align -mgeneral-regs-only \
              -Iinclude -I. -O2 -g
 
     LDFLAGS = -nostdlib -static -no-pie -T kernel/arch/aarch64/linker.ld
 
-    AARCH64_C_SOURCES = kernel/arch/aarch64/kmain.c \
-                        kernel/arch/aarch64/serial.c \
-                        kernel/arch/aarch64/mailbox.c \
-                        kernel/arch/aarch64/mmu.c \
-                        kernel/arch/aarch64/timer.c \
-                        kernel/arch/aarch64/sound_hdmi.c \
-                        kernel/drivers/bluetooth/hci.c \
-                        kernel/drivers/bluetooth/bcm43438.c \
-                        kernel/drivers/bluetooth/ble_host.c \
-                        kernel/drivers/bluetooth/xbox_ble.c \
-                        kernel/drivers/input/gamepad.c \
-                        kernel/shell/paratrooper.c \
-                        kernel/shell/paratrooper_data.c \
-                        kernel/lib/printk.c \
-                        kernel/lib/string.c \
-                        kernel/lib/fb.c \
-                        kernel/lib/font.c
+    AARCH64_C_SOURCES = $(COMMON_C_SOURCES) $(shell find kernel/arch/aarch64 -name "*.c")
 
     AARCH64_ASM_SOURCES = kernel/arch/aarch64/boot.S
 
@@ -173,6 +160,9 @@ else ifeq ($(ARCH),aarch64)
 		@printf "arm_64bit=1\nkernel=kernel8.img\nhdmi_force_hotplug=1\nhdmi_drive=2\nconfig_hdmi_boost=4\ndisable_overscan=1\nenable_uart=1\nuart_2ndstage=1\ncore_freq=250\ninit_uart_clock=48000000\n" > $(OUTPUT_DIR)/config.txt
 		@mcopy -i $@@@1048576 $(KERNEL_IMG) ::kernel8.img
 		@mcopy -i $@@@1048576 $(OUTPUT_DIR)/config.txt ::config.txt
+		@# Settings read by the shell at boot; editable on any PC (FAT32 boot partition)
+		@printf "# Antigravity OS settings (read at boot from the SD card boot partition)\n# autostart=shell        boot to the shell prompt (default)\n# autostart=paratrooper  start Paratrooper; quitting it opens the shell\nautostart=shell\n" > $(OUTPUT_DIR)/antigravity.cfg
+		@mcopy -i $@@@1048576 $(OUTPUT_DIR)/antigravity.cfg ::antigravity.cfg
 		@# GPU boot files plus both licence notices (they must accompany the firmware); no device
 		@# trees: the kernel does not use one
 		@mcopy -o -i $@@@1048576 $(RPI_FW_FILES) $(FW_DIR)/LICENSE.cypress ::
