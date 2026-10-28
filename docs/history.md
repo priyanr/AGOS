@@ -3,6 +3,13 @@
 Append-only log of what was done and why, **newest entry first**. Older entries move to
 `docs/history-archive/<year>.md` when this file passes ~1500 lines.
 
+### Blank screen on the Pi was Paratrooper quitting (feature/arm-ble-xbox, 2026-10-28)
+- What: on the Pi, `kmain` restarts Paratrooper at the title screen whenever it exits.
+- Why: View / Xbox (Guide) button (or ESC / q on serial) quits the game; on x86 that returns to the shell, on the Pi it left a black screen (the "Exited Paratrooper." line sits in the overscanned top row) while Bluetooth kept running. Pressing the Xbox button to wake the controller triggers it.
+- Touched: `kernel/arch/aarch64/kmain.c`. Existing feature affected: quitting the game on the Pi now returns to the title screen.
+- Verified: aarch64 build. Not yet run on the Pi.
+- Open: whether the Xbox / View buttons should quit at all on the Pi (asked).
+
 ### HDMI audio silent on some boots after the speed-up (feature/arm-ble-xbox, 2026-10-28)
 - What: real 2 ms timer waits after the MAI and DMA resets, memory barriers before starting the DMA and after rewriting the tone buffer, DMA start verified and retried once, and the DMA restarted if a tone is played while it is stopped.
 - Why: after the MMU/cache change, sound worked on one boot and not on later ones (power unplugged). The old delay-loop wait after DMA reset shrank to about a microsecond, so the start could be ignored.

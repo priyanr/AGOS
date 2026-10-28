@@ -145,7 +145,11 @@ void kmain_aarch64(void) {
 #if LAUNCH_PARATROOPER
     printk("\n[SYSTEM] AArch64 Kernel ready. Launching Paratrooper...\n");
     if (has_fb) {
-        cmd_paratrooper(0, NULL);
+        // There is no shell on the Pi: quitting the game (View / Xbox button, ESC or q on the
+        // serial console) used to leave a black screen, so start it again at the title screen
+        while (1) {
+            cmd_paratrooper(0, NULL);
+        }
     }
 #else
     printk("\n[SYSTEM] AArch64 Kernel ready. Bluetooth debug screen (Paratrooper disabled).\n");
