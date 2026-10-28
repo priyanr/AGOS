@@ -51,7 +51,34 @@
 >
 > * **Tooling & AI Model**: This project was an experiment built using the **Antigravity CLI (`agy`)** and **Gemini 3.8 Flash (Medium)**.
 > * **Speed & Efficiency**: The entire operating system was built from scratch in **under 3 hours** within a single session limit, consuming **just ~5% of the weekly quota**.
-> * **AI Pair Programming**: Other than one stubborn keyboard input bug that Gemini struggled to fix — where **Claude Opus** was brought in and pinpointed the issue in under a minute — **everything else across the entire OS was written end-to-end by Gemini**.
+> * **AI Pair Programming**: Other than one stubborn keyboard input bug that Gemini struggled to fix — where **Claude Opus** was brought in and pinpointed the issue in under a minute — **everything else across the original x86_64 OS was written end-to-end by Gemini**.
+
+### LLM Experiment: the Raspberry Pi 3 Port
+
+The ARM port was a second experiment: split the work between two models and see where each one
+gets stuck on real hardware (Raspberry Pi 3 Model B + Xbox Wireless Controller, tested by hand
+from photos of the TV).
+
+| Part | Model | Outcome |
+|---|---|---|
+| Initial code: AArch64 boot, ARM HAL (mailbox framebuffer, timer, UART), gamepad HAL, Xbox report parser, multi-arch build scripts, SD image packaging | **Gemini 3.8 Flash** (Antigravity CLI) | Worked: Paratrooper booted on the Pi over HDMI |
+| Bluetooth radio bring-up: BCM43438 power-on via mailbox, patchram firmware upload, LE scan, on-screen debug HUD | **Gemini 3.8 Flash**, reviewed by Claude | Partly: chip powered and scanning after several review rounds |
+| **HDMI audio** | Gemini 3.8 Flash struggled | Its VCHIQ driver was a placeholder that never sent any audio |
+| **Bluetooth LE stack** (pairing, encryption, GATT, HID input) | Gemini 3.8 Flash struggled | Scaffolding only; the docs described a handshake that did not exist |
+| HDMI audio driver (HDMI MAI FIFO fed by DMA, IEC958 framing), BLE host written from scratch (L2CAP, SMP pairing with its own AES-128, GATT discovery, HID-host sequence), boot-hang and UART fixes, MMU + caches for full game speed, firmware licensing cleanup | **Claude Opus 5.5 (medium effort)** in Claude Code | Working on hardware: controller pairs and plays Paratrooper with HDMI sound |
+
+Notes from the experiment:
+- **Where Gemini got stuck**: hardware details with no feedback. A silent hang turned out to be one
+  unaligned store (the MMU was off, so it faulted with no exception handler); a 16-byte UART FIFO
+  silently dropped the controller's advertisements; the Xbox controller only leaves pairing mode for
+  a host that bonds first, sends its identity keys and reads the HID Report Map before subscribing.
+- **How Claude worked through it**: added on-screen diagnostics (link state, GATT table, raw
+  notifications, audio and DMA registers) so each test boot answered one question, tested the
+  pairing crypto against the Bluetooth spec's test vectors on the PC, and simulated the GATT flow
+  on the PC before each hardware run.
+- **Share of the current Pi / Bluetooth code** (by `git blame`, excluding firmware): about 59%
+  Claude Opus 5.5, 17% Gemini 3.8 Flash in this port, 23% earlier Gemini code it builds on.
+- Full log of every step and why: [`docs/history.md`](docs/history.md).
 
 ---
 
