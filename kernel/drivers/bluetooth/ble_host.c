@@ -37,6 +37,8 @@
 #define SMP_PAIRING_FAILED  0x05
 #define SMP_ENC_INFO        0x06
 #define SMP_MASTER_IDENT    0x07
+#define SMP_IDENTITY_INFO   0x08
+#define SMP_IDENTITY_ADDR   0x09
 #define SMP_SECURITY_REQ    0x0B
 
 #define UUID_PRIMARY_SERVICE   0x2800
@@ -78,6 +80,7 @@ static uint8_t mrand[16];
 static uint8_t sconfirm[16];
 static uint8_t key_size = 16;
 static bool encrypting_with_bond = false;
+static bool identity_sent = false;
 
 // Bond from the last successful pairing (RAM only)
 static bool bond_valid = false;
@@ -284,11 +287,31 @@ static void start_pairing(void) {
     preq[2] = 0x00; // OOB data not present
     preq[3] = 0x01; // AuthReq: bonding, no MITM, no Secure Connections (legacy pairing)
     preq[4] = 16;   // Maximum encryption key size
-    preq[5] = 0x00; // Initiator key distribution: none
+    preq[5] = 0x02; // Initiator key distribution: IdKey (our IRK + identity address)
     preq[6] = 0x01; // Responder key distribution: LTK (EncKey)
     l2cap_send(L2CAP_CID_SMP, preq, 7);
     encrypting_with_bond = false;
+    identity_sent = false;
+    memset(pres, 0, sizeof(pres));
     set_state(LINK_PAIRING);
+}
+
+// Phase 3 key distribution, initiator side: after the responder's keys, send our identity
+// (IRK + public identity address) if the controller accepted IdKey in its Pairing Response.
+// Windows and Android do this; without it the controller stays in pairing mode.
+static void send_identity_keys(void) {
+    if (identity_sent || (pres[5] & 0x02) == 0) return;
+    uint8_t info[17];
+    info[0] = SMP_IDENTITY_INFO;
+    for (int i = 0; i < 16; i++) info[1 + i] = random_byte(); // IRK; we never use private addresses
+    l2cap_send(L2CAP_CID_SMP, info, 17);
+
+    uint8_t addr[8];
+    addr[0] = SMP_IDENTITY_ADDR;
+    addr[1] = 0x00; // Public address
+    memcpy(&addr[2], own_addr, 6);
+    l2cap_send(L2CAP_CID_SMP, addr, 8);
+    identity_sent = true;
 }
 
 static void send_find_info(uint16_t start) {
@@ -398,6 +421,8 @@ static void handle_smp(const uint8_t *d, uint16_t len) {
             memcpy(bond_rand, &d[3], 8);
             memcpy(bond_addr, peer_addr, 6);
             bond_valid = true;
+            // EncKey was the last key the responder distributes (we asked for nothing else)
+            send_identity_keys();
         }
         break;
     case SMP_SECURITY_REQ:
@@ -652,6 +677,8 @@ void ble_host_on_encryption_change(uint8_t status, bool enabled) {
         return;
     }
     if (link_state == LINK_ENCRYPTING) {
+        // Responder distributes no keys: our identity goes out right after encryption
+        if (!encrypting_with_bond && (pres[6] & 0x01) == 0) send_identity_keys();
         start_discovery();
     }
 }
@@ -695,14 +722,15 @@ void ble_host_poll(void) {
 
 const char *ble_host_status_line(void) {
     static char line[96];
-    // at = attributes recorded, ch = characteristics listed, e = last ATT error (request / code),
-    // ltk = pairing key received, rep/cccd = reports found / notifications switched on,
-    // nt = notifications of any size, rx = gamepad-sized reports parsed
-    snprintf(line, sizeof(line), "%s|at:%d ch:%d e:%02X/%02X ltk:%d rep:%d cccd:%d nt:%d rx:%d %s",
+    // at = attributes recorded, e = last ATT error (request / code), ltk = pairing key received,
+    // kd = key distribution the controller accepted (initiator / responder), id = our identity sent,
+    // cccd = notifications switched on, nt = notifications of any size, rx = gamepad reports parsed
+    snprintf(line, sizeof(line), "%s|at:%d e:%02X/%02X ltk:%d kd:%X/%X id:%d cccd:%d nt:%d rx:%d %s",
              connected ? link_state_names[link_state] : "NO LINK",
-             attr_count, chars_seen,
+             attr_count,
              (unsigned int)last_att_error_req, (unsigned int)last_att_error_code, ltk_received ? 1 : 0,
-             report_count, cccd_count, (int)notifications_received, (int)reports_received, link_error);
+             (unsigned int)pres[5], (unsigned int)pres[6], identity_sent ? 1 : 0,
+             cccd_count, (int)notifications_received, (int)reports_received, link_error);
     return line;
 }
 
