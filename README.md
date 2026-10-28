@@ -88,8 +88,9 @@ Notes from the experiment:
   notifications, audio and DMA registers) so each test boot answered one question, tested the
   pairing crypto against the Bluetooth spec's test vectors on the PC, and simulated the GATT flow
   on the PC before each hardware run.
-- **Share of the current Pi / Bluetooth code** (by `git blame`, excluding firmware): about 59%
-  Claude Opus 5.5, 17% Gemini 3.8 Flash in this port, 23% earlier Gemini code it builds on.
+- **Share of the current Pi / Bluetooth code** (by `git blame`, excluding firmware; Pi HAL and
+  drivers including USB keyboard and SD card, 2026-10-28): about 71% Claude Opus 5.5, 13% Gemini
+  3.8 Flash in this port, 16% earlier Gemini code it builds on.
 - Full log of every step and why: [`docs/history.md`](docs/history.md).
 
 ---
