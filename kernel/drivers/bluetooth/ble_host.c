@@ -93,6 +93,15 @@ static int cccd_count = 0;
 static int cccd_next = 0;
 static uint32_t reports_received = 0;
 
+// Diagnostics for the [BLE LINK] debug line
+static int find_info_responses = 0;
+static int attributes_seen = 0;
+static int services_seen = 0;
+static uint16_t last_attr_handle = 0;
+static uint8_t last_att_error_req = 0;
+static uint8_t last_att_error_code = 0;
+static bool ltk_received = false;
+
 static uint64_t rng_state = 0;
 
 // ---------------------------------------------------------------------------------------------
@@ -284,6 +293,10 @@ static void start_discovery(void) {
     report_count = 0;
     cccd_count = 0;
     cccd_next = 0;
+    find_info_responses = 0;
+    attributes_seen = 0;
+    services_seen = 0;
+    last_attr_handle = 0;
     set_state(LINK_DISCOVERING);
     send_find_info(0x0001);
 }
@@ -355,7 +368,10 @@ static void handle_smp(const uint8_t *d, uint16_t len) {
         set_state(LINK_IDLE);
         break;
     case SMP_ENC_INFO:
-        if (len >= 17) memcpy(bond_ltk, &d[1], 16);
+        if (len >= 17) {
+            memcpy(bond_ltk, &d[1], 16);
+            ltk_received = true;
+        }
         break;
     case SMP_MASTER_IDENT:
         if (len >= 11) {
@@ -380,16 +396,28 @@ static void handle_smp(const uint8_t *d, uint16_t len) {
     }
 }
 
+// A 128-bit UUID built on the Bluetooth base UUID (0000xxxx-0000-1000-8000-00805F9B34FB) is the
+// same attribute type as its 16-bit form; anything else (vendor UUIDs) maps to 0
+static uint16_t uuid16_from_uuid128(const uint8_t *u) {
+    static const uint8_t base[12] = { 0xFB, 0x34, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00, 0x00 };
+    if (memcmp(u, base, 12) != 0 || u[14] != 0 || u[15] != 0) return 0;
+    return (uint16_t)(u[12] | (u[13] << 8));
+}
+
 static void handle_find_info_rsp(const uint8_t *d, uint16_t len) {
     if (len < 2) return;
     uint8_t format = d[1];
     int entry_size = (format == 0x01) ? 4 : 18; // 16-bit or 128-bit UUIDs
     uint16_t last_handle = 0;
+    find_info_responses++;
 
     for (int p = 2; p + entry_size <= len; p += entry_size) {
         uint16_t handle = (uint16_t)(d[p] | (d[p + 1] << 8));
-        uint16_t uuid = (format == 0x01) ? (uint16_t)(d[p + 2] | (d[p + 3] << 8)) : 0;
+        uint16_t uuid = (format == 0x01) ? (uint16_t)(d[p + 2] | (d[p + 3] << 8))
+                                         : uuid16_from_uuid128(&d[p + 2]);
         last_handle = handle;
+        attributes_seen++;
+        if (uuid == UUID_PRIMARY_SERVICE) services_seen++;
 
         if (uuid == UUID_PRIMARY_SERVICE || uuid == UUID_SECONDARY_SERVICE) {
             current_char_uuid = 0;
@@ -410,6 +438,7 @@ static void handle_find_info_rsp(const uint8_t *d, uint16_t len) {
         }
     }
 
+    if (last_handle != 0) last_attr_handle = last_handle;
     if (last_handle == 0 || last_handle == 0xFFFF) {
         set_state(LINK_ENABLING);
         enable_next_cccd();
@@ -432,6 +461,8 @@ static void handle_att(const uint8_t *d, uint16_t len) {
     switch (op) {
     case ATT_ERROR_RSP:
         if (len < 5) return;
+        last_att_error_req = d[1];
+        last_att_error_code = d[4];
         if (d[1] == ATT_FIND_INFO_REQ && link_state == LINK_DISCOVERING) {
             // 0x0A Attribute Not Found marks the end of the attribute table
             if (d[4] != 0x0A) set_error("Discovery error", d[4]);
@@ -589,8 +620,12 @@ void ble_host_poll(void) {
 
 const char *ble_host_status_line(void) {
     static char line[96];
-    snprintf(line, sizeof(line), "%s | reports:%d notify:%d rx:%d %s",
+    // fi = Find Information responses, at = attributes, sv = services, last = highest handle,
+    // e = last ATT error (request opcode / error code), ltk = pairing key received
+    snprintf(line, sizeof(line), "%s|fi:%d at:%d sv:%d last:%04X e:%02X/%02X ltk:%d rep:%d cccd:%d rx:%d %s",
              connected ? link_state_names[link_state] : "NO LINK",
+             find_info_responses, attributes_seen, services_seen, (unsigned int)last_attr_handle,
+             (unsigned int)last_att_error_req, (unsigned int)last_att_error_code, ltk_received ? 1 : 0,
              report_count, cccd_count, (int)reports_received, link_error);
     return line;
 }
