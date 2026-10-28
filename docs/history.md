@@ -2,6 +2,13 @@
 
 Append-only log of what was done and why, **newest entry first**. Older entries move to
 `docs/history-archive/<year>.md` when this file passes ~1500 lines.
+### Shared kernel verified on the Pi, demo video, code share (feature/arm-ble-xbox, 2026-10-28)
+- What: no code change. Pi hardware check of the shared-kernel entry below; README gets the Pi Paratrooper + Xbox demo video (YouTube + `docs/rpi_paratrooper_xbox.mp4`) and an updated `git blame` code share (71% Claude Opus 5.5, 13% Gemini in this port, 16% earlier Gemini).
+- Why: user confirmed everything works on the Pi; user request for the video and the share.
+- Touched: `README.md`, `docs/status.md`, `docs/rpi_paratrooper_xbox.mp4`.
+- Verified: on Pi 3B by the user: shell, SD card + FAT32 root, USB keyboard, Xbox controller and HDMI audio. One report of the controller needing pairing mode at boot turned out to be a test mistake.
+- Open: none.
+
 ### One kernel for both CPUs: shell and utilities on the Pi, USB keyboard, SD card (feature/arm-ble-xbox, 2026-10-28)
 - What: everything outside `kernel/arch/<arch>/` is now shared (shell, utilities, GW-BASIC, scheduler, PMM/heap, VFS, ext4, new read-only FAT32, partitions); x86 PC drivers moved to `kernel/arch/x86_64/`, Pi drivers to `kernel/arch/aarch64/drivers/`. New HAL (`hal/platform.h`) and shared `kernel_start()`. Pi: generic-timer tick and IRQ dispatch in C, context switch, SD card driver, DWC2 USB host with hub and HID keyboard.
 - Why: user request: only HAL and drivers may differ per architecture; Pi defaults to the shell unless a config file on the filesystem says otherwise.
