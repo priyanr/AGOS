@@ -110,20 +110,30 @@ exc_unhandled:
 irq_entry:
     stp     x0, x1, [sp, #-48]!
     stp     x2, x3, [sp, #16]
-    str     x4, [sp, #32]
+    stp     x4, x5, [sp, #32]
     ldr     x0, =0x3F201000         // UART0 base
     ldr     x1, =bt_rx_ring
     ldr     x2, =bt_rx_head
     ldr     w3, [x2]
+    mov     w5, #0                  // bytes taken this IRQ
 2:  ldr     w4, [x0, #0x18]         // FR
     tbnz    w4, #4, 3f              // RXFE: FIFO empty
     ldr     w4, [x0]                // DR
     strb    w4, [x1, w3, uxtw]
     add     w3, w3, #1
     and     w3, w3, #4095
+    add     w5, w5, #1
     b       2b
 3:  str     w3, [x2]
-    ldr     x4, [sp, #32]
+    ldr     x2, =bt_irq_count       // diagnostics: IRQ entries and bytes received
+    ldr     w4, [x2]
+    add     w4, w4, #1
+    str     w4, [x2]
+    ldr     x2, =bt_irq_bytes
+    ldr     w4, [x2]
+    add     w4, w4, w5
+    str     w4, [x2]
+    ldp     x4, x5, [sp, #32]
     ldp     x2, x3, [sp, #16]
     ldp     x0, x1, [sp], #48
     eret

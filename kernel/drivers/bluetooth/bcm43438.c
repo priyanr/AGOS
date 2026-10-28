@@ -4,6 +4,7 @@
 #include <kernel/printk.h>
 #include <kernel/string.h>
 #include <kernel/fb.h>
+#include <drivers/sound.h>
 
 #if defined(__aarch64__)
 #include <hal/aarch64/arm.h>
@@ -58,6 +59,24 @@ static bool xbox_connected = false;
 // 16-byte aligned mailbox buffer
 static volatile uint32_t __attribute__((aligned(16))) mbox_buf[16];
 
+// RX ring filled by the UART0 IRQ handler in boot.S (irq_entry). The PL011 FIFO is only
+// 16 bytes (~1.4 ms at 115200), far less than one Paratrooper frame, so polling loses data.
+#define BT_RX_RING_SIZE 4096  // must match the mask in boot.S
+volatile uint8_t bt_rx_ring[BT_RX_RING_SIZE];
+volatile uint32_t bt_rx_head = 0;    // written only by irq_entry
+volatile uint32_t bt_irq_count = 0;  // diagnostics, written only by irq_entry
+volatile uint32_t bt_irq_bytes = 0;
+static uint32_t bt_rx_tail = 0;
+static uint32_t bt_rx_max_fill = 0;
+static uint32_t bt_uart_errors = 0;  // PL011 RSR bits seen: 1=FE 2=PE 4=BE 8=OE
+
+// Pad to a fixed width so a shorter line fully overwrites the previous one
+static void hud_pad(char *line, size_t size) {
+    size_t n = strlen(line);
+    while (n < size - 1) line[n++] = ' ';
+    line[size - 1] = '\0';
+}
+
 // Render On-Screen Debug HUD at the very top of the 1024x768 HDMI display
 void bcm43438_draw_debug_hud(void) {
     fb_info_t *fb = fb_get_info();
@@ -66,6 +85,7 @@ void bcm43438_draw_debug_hud(void) {
     char line0[96];
     char line1[96];
     char line2[96];
+    char line3[96];
 
     // Format Line 0: Radio Status, Board Revision & Clock
     char clk_buf[16];
@@ -83,11 +103,33 @@ void bcm43438_draw_debug_hud(void) {
     snprintf(line2, sizeof(line2), "[BLE TARGET] Devices: %-2d | %-52s",
              (int)ble_devices_found, ble_device_str);
 
-    // Render 3 top banner rows (Col 0..127, Row 0..2)
-    // Rows 1..3, not 0: TV overscan hides the top text row
+    // Format Line 3: UART receive diagnostics (IRQ bytes in vs bytes read by the driver)
+    bt_uart_errors |= mmio_read32(UART0_BASE + 0x04) & 0xF; // RSR
+    mmio_write32(UART0_BASE + 0x04, 0);                     // clear RSR
+    snprintf(line3, sizeof(line3), "[BLE DIAG ] up:%ds irq:%d in:%d read:%d maxfill:%d err:%X",
+             (int)(timer_get_ticks() / 1000), (int)bt_irq_count, (int)bt_irq_bytes,
+             (int)ble_rx_count, (int)bt_rx_max_fill, (unsigned int)bt_uart_errors);
+
+    // Line 4: pairing / GATT progress from the BLE host; line 5: HDMI audio driver state
+    char line4[96];
+    char line5[96];
+    snprintf(line4, sizeof(line4), "[BLE LINK ] %s", ble_host_status_line());
+    snprintf(line5, sizeof(line5), "[AUDIO    ] %s", sound_status_line());
+
+    hud_pad(line0, sizeof(line0));
+    hud_pad(line1, sizeof(line1));
+    hud_pad(line2, sizeof(line2));
+    hud_pad(line3, sizeof(line3));
+    hud_pad(line4, sizeof(line4));
+    hud_pad(line5, sizeof(line5));
+
+    // Rows 1..6, not 0: TV overscan hides the top text row
     fb_draw_string_at(0, 1, line0, 0x00FBBF24, 0x000F172A); // Bright Amber on dark slate
     fb_draw_string_at(0, 2, line1, 0x0038BDF8, 0x000F172A); // Bright Cyan on dark slate
     fb_draw_string_at(0, 3, line2, 0x004ADE80, 0x000F172A); // Bright Green on dark slate
+    fb_draw_string_at(0, 4, line4, 0x00FFFFFF, 0x000F172A); // White on dark slate
+    fb_draw_string_at(0, 5, line3, 0x00F472B6, 0x000F172A); // Pink on dark slate
+    fb_draw_string_at(0, 6, line5, 0x00C4B5FD, 0x000F172A); // Lavender on dark slate
 }
 
 // Low-level UART routines for the BCM43438 Bluetooth Controller
@@ -104,13 +146,6 @@ static bool bt_uart_putc(uint8_t c) {
     return true;
 }
 
-// RX ring filled by the UART0 IRQ handler in boot.S (irq_entry). The PL011 FIFO is only
-// 16 bytes (~1.4 ms at 115200), far less than one Paratrooper frame, so polling loses data.
-#define BT_RX_RING_SIZE 4096  // must match the mask in boot.S
-volatile uint8_t bt_rx_ring[BT_RX_RING_SIZE];
-volatile uint32_t bt_rx_head = 0;  // written only by irq_entry
-static uint32_t bt_rx_tail = 0;
-
 static bool bt_rx_empty(void) {
     return bt_rx_tail == bt_rx_head;
 }
@@ -123,6 +158,8 @@ static bool bt_uart_getc(uint8_t *out_byte, uint32_t timeout_ms) {
         }
         arm_delay(10);
     }
+    uint32_t fill = (bt_rx_head - bt_rx_tail) & (BT_RX_RING_SIZE - 1);
+    if (fill > bt_rx_max_fill) bt_rx_max_fill = fill;
     *out_byte = bt_rx_ring[bt_rx_tail];
     bt_rx_tail = (bt_rx_tail + 1) & (BT_RX_RING_SIZE - 1);
     ble_rx_count++;
@@ -259,7 +296,7 @@ static void bt_uart_init(void) {
 }
 
 // Send raw HCI Command
-static void bt_send_hci(uint16_t opcode, const uint8_t *param, uint8_t param_len) {
+void bcm43438_send_cmd(uint16_t opcode, const uint8_t *param, uint8_t param_len) {
     bt_uart_putc(0x01); // HCI Command Packet
     bt_uart_putc((uint8_t)(opcode & 0xFF));
     bt_uart_putc((uint8_t)((opcode >> 8) & 0xFF));
@@ -269,28 +306,47 @@ static void bt_send_hci(uint16_t opcode, const uint8_t *param, uint8_t param_len
     }
 }
 
-// Read an incoming HCI event packet with timeout
-static bool bt_read_hci_event(uint8_t *evt_code, uint8_t *out_data, uint8_t *out_len, uint32_t timeout_ms) {
-    uint8_t pkt_type;
-    if (!bt_uart_getc(&pkt_type, timeout_ms)) return false;
-    if (pkt_type == 0x02) {
-        // ACL data (handle 2, length 2, payload): not handled yet, but consume it whole
-        // so the next byte read is the start of a packet again.
+// Send one ACL data packet (an L2CAP PDU) on a connection
+void bcm43438_send_acl(uint16_t handle, const uint8_t *data, uint16_t len) {
+    uint16_t handle_flags = handle & 0x0FFF; // PB=00: first non-flushable fragment (LE)
+    bt_uart_putc(0x02); // HCI ACL Data Packet
+    bt_uart_putc((uint8_t)(handle_flags & 0xFF));
+    bt_uart_putc((uint8_t)(handle_flags >> 8));
+    bt_uart_putc((uint8_t)(len & 0xFF));
+    bt_uart_putc((uint8_t)(len >> 8));
+    for (uint16_t i = 0; i < len; i++) {
+        bt_uart_putc(data[i]);
+    }
+}
+
+// Read one HCI packet. Event: *pkt_type = 0x04, *code = event code, out_data = parameters.
+// ACL: *pkt_type = 0x02, *code unused, out_data = [handle_flags lo, hi] + payload.
+// out_data must hold 256 bytes; longer ACL packets are consumed and dropped.
+static bool bt_read_packet(uint8_t *pkt_type, uint8_t *code, uint8_t *out_data, uint16_t *out_len,
+                           uint32_t timeout_ms) {
+    if (!bt_uart_getc(pkt_type, timeout_ms)) return false;
+
+    if (*pkt_type == 0x02) {
         uint8_t hdr[4];
         for (int i = 0; i < 4; i++) {
             if (!bt_uart_getc(&hdr[i], timeout_ms)) return false;
         }
         uint16_t dlen = hdr[2] | (hdr[3] << 8);
+        out_data[0] = hdr[0];
+        out_data[1] = hdr[1];
         for (uint16_t i = 0; i < dlen; i++) {
             uint8_t byte;
             if (!bt_uart_getc(&byte, timeout_ms)) return false;
+            if (i < 254) out_data[2 + i] = byte;
         }
-        return false;
+        if (dlen > 254) return false;
+        *out_len = (uint16_t)(dlen + 2);
+        return true;
     }
-    if (pkt_type != 0x04) return false; // Must be HCI Event packet
+    if (*pkt_type != 0x04) return false; // Not a packet start: resync on the next byte
 
-    if (!bt_uart_getc(evt_code, timeout_ms)) return false;
-    ble_last_evt = *evt_code;
+    if (!bt_uart_getc(code, timeout_ms)) return false;
+    ble_last_evt = *code;
 
     uint8_t plen;
     if (!bt_uart_getc(&plen, timeout_ms)) return false;
@@ -298,16 +354,25 @@ static bool bt_read_hci_event(uint8_t *evt_code, uint8_t *out_data, uint8_t *out
     for (uint8_t i = 0; i < plen; i++) {
         uint8_t byte;
         if (!bt_uart_getc(&byte, timeout_ms)) return false;
-        if (out_data && i < 255) {
-            out_data[i] = byte;
-        }
+        out_data[i] = byte;
     }
-    if (out_len) *out_len = plen;
+    *out_len = plen;
     return true;
 }
 
-// Wait for a Command Complete Event for a specific opcode
-static bool bt_wait_cmd_complete(uint16_t expected_opcode, uint32_t timeout_ms) {
+// Read the next HCI event, skipping ACL data (used during init, before any connection)
+static bool bt_read_hci_event(uint8_t *evt_code, uint8_t *out_data, uint8_t *out_len, uint32_t timeout_ms) {
+    uint8_t pkt_type;
+    uint16_t len;
+    if (!bt_read_packet(&pkt_type, evt_code, out_data, &len, timeout_ms)) return false;
+    if (pkt_type != 0x04) return false;
+    *out_len = (uint8_t)len;
+    return true;
+}
+
+// Wait for a Command Complete Event for a specific opcode; copies the return parameters after
+// the status byte into ret (up to ret_size bytes) when ret is not NULL
+static bool bt_wait_cmd_complete_ret(uint16_t expected_opcode, uint32_t timeout_ms, uint8_t *ret, uint8_t ret_size) {
     uint8_t evt, len;
     uint8_t buf[256];
     uint64_t start = timer_get_ticks();
@@ -317,12 +382,19 @@ static bool bt_wait_cmd_complete(uint16_t expected_opcode, uint32_t timeout_ms) 
             if (evt == 0x0E && len >= 3) { // HCI_EVT_CMD_COMPLETE
                 uint16_t opcode = buf[1] | (buf[2] << 8);
                 if (opcode == expected_opcode) {
+                    if (ret) {
+                        for (uint8_t i = 0; i < ret_size && 4 + i < len; i++) ret[i] = buf[4 + i];
+                    }
                     return (len > 3) ? (buf[3] == 0) : true;
                 }
             }
         }
     }
     return false;
+}
+
+static bool bt_wait_cmd_complete(uint16_t expected_opcode, uint32_t timeout_ms) {
+    return bt_wait_cmd_complete_ret(expected_opcode, timeout_ms, NULL, 0);
 }
 
 // Uploads the official BCM43430A1.hcd patchram firmware to the Broadcom chip
@@ -332,7 +404,7 @@ static bool bcm43438_load_firmware(void) {
     bcm43438_draw_debug_hud();
 
     // Send Broadcom Vendor Command: HCI_VSC_DOWNLOAD_MINIDRIVER (0xFC2E)
-    bt_send_hci(0xFC2E, NULL, 0);
+    bcm43438_send_cmd(0xFC2E, NULL, 0);
     if (!bt_wait_cmd_complete(0xFC2E, 1000)) {
         strncpy(ble_status_str, "MINIDRIVER FAILED", sizeof(ble_status_str));
         strncpy(ble_info_str, "0xFC2E command rejected or timed out", sizeof(ble_info_str));
@@ -350,7 +422,7 @@ static bool bcm43438_load_firmware(void) {
         offset += 3;
 
         if (offset + plen > bcm43430a1_hcd_len) break;
-        bt_send_hci(op, &bcm43430a1_hcd[offset], plen);
+        bcm43438_send_cmd(op, &bcm43430a1_hcd[offset], plen);
         offset += plen;
 
         if (!bt_wait_cmd_complete(op, 1000)) {
@@ -401,7 +473,7 @@ void bcm43438_init(void) {
     for (int retry = 0; retry < 3; retry++) {
         // Drop any stale received bytes
         bt_rx_tail = bt_rx_head;
-        bt_send_hci(0x0C03, NULL, 0);
+        bcm43438_send_cmd(0x0C03, NULL, 0);
         if (bt_wait_cmd_complete(0x0C03, 1000)) {
             reset_ok = true;
             break;
@@ -431,27 +503,38 @@ void bcm43438_init(void) {
     bcm43438_draw_debug_hud();
 
     // Step 3: Post-firmware HCI Reset
-    bt_send_hci(0x0C03, NULL, 0);
+    bcm43438_send_cmd(0x0C03, NULL, 0);
     if (!bt_wait_cmd_complete(0x0C03, 1500)) {
         strncpy(ble_status_str, "POST-RESET FAIL", sizeof(ble_status_str));
         bcm43438_draw_debug_hud();
         return;
     }
 
+    // Our own BD_ADDR is part of the SMP pairing confirm value (HCI_Read_BD_ADDR)
+    uint8_t bd_addr[6] = { 0 };
+    bcm43438_send_cmd(0x1009, NULL, 0);
+    if (bt_wait_cmd_complete_ret(0x1009, 500, bd_addr, 6)) {
+        ble_host_set_own_address(bd_addr);
+        printk("[BCM43438] Own address %02X:%02X:%02X:%02X:%02X:%02X\n",
+               bd_addr[5], bd_addr[4], bd_addr[3], bd_addr[2], bd_addr[1], bd_addr[0]);
+    } else {
+        printk("[BCM43438] HCI_Read_BD_ADDR failed; pairing will not work.\n");
+    }
+
     // Step 4: Configure Event Mask (Enable LE Meta Events)
     uint8_t evt_mask[8] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xBF, 0x3D };
-    bt_send_hci(0x0C01, evt_mask, 8);
+    bcm43438_send_cmd(0x0C01, evt_mask, 8);
     bt_wait_cmd_complete(0x0C01, 200);
 
     // Step 5: Configure BLE Active Scanning
     // Scan type: 0x01 (Active scan to request names), Interval: 0x0060 (60ms), Window: 0x0030 (30ms)
     uint8_t scan_param[7] = { 0x01, 0x60, 0x00, 0x30, 0x00, 0x00, 0x00 };
-    bt_send_hci(0x200B, scan_param, 7);
+    bcm43438_send_cmd(0x200B, scan_param, 7);
     bt_wait_cmd_complete(0x200B, 200);
 
     // Step 6: Enable Scanning (FilterDuplicates=1 to prevent event queue flooding)
     uint8_t scan_en[2] = { 0x01, 0x01 }; // Enable=1, FilterDuplicates=1
-    bt_send_hci(0x200C, scan_en, 2);
+    bcm43438_send_cmd(0x200C, scan_en, 2);
     bt_wait_cmd_complete(0x200C, 200);
 
     bcm_ready = true;
@@ -462,6 +545,15 @@ void bcm43438_init(void) {
     printk("[BCM43438] BLE Active Scan Started. Searching for Xbox Controller...\n");
 }
 
+// Restart the LE scan after a disconnect or failed connection attempt
+// (FilterDuplicates=1, as at startup, to avoid flooding the UART)
+static void bt_resume_scan(void) {
+    xbox_found = false;
+    uint8_t scan_en[2] = { 0x01, 0x01 };
+    bcm43438_send_cmd(0x200C, scan_en, 2);
+    bt_wait_cmd_complete(0x200C, 100);
+}
+
 // Background polling for incoming BLE advertising and ACL reports
 void bcm43438_poll(void) {
     static uint32_t poll_ticks = 0;
@@ -470,11 +562,36 @@ void bcm43438_poll(void) {
     }
     if (!bcm_ready) return;
 
-    uint8_t evt, len;
+    uint8_t pkt_type, evt, len;
+    uint16_t pkt_len;
     uint8_t buf[256];
     int max_events = 16; // Bytes are buffered by the IRQ; cap work per frame to keep the game smooth
 
-    while (max_events-- > 0 && !bt_rx_empty() && bt_read_hci_event(&evt, buf, &len, 10)) {
+    ble_host_poll();
+
+    while (max_events-- > 0 && !bt_rx_empty() && bt_read_packet(&pkt_type, &evt, buf, &pkt_len, 10)) {
+        if (pkt_type == 0x02) { // ACL data: L2CAP for the BLE host
+            ble_host_on_acl((uint16_t)(buf[0] | (buf[1] << 8)), &buf[2], (uint16_t)(pkt_len - 2));
+            continue;
+        }
+        len = (uint8_t)pkt_len;
+
+        if (evt == 0x08 && len >= 4) { // HCI_EVT_ENCRYPTION_CHANGE: status, handle, enabled
+            ble_host_on_encryption_change(buf[0], buf[3] != 0);
+            continue;
+        }
+        if (evt == 0x30 && len >= 3) { // HCI_EVT_ENCRYPTION_KEY_REFRESH_COMPLETE: status, handle
+            ble_host_on_encryption_change(buf[0], true);
+            continue;
+        }
+        if (evt == 0x0F && len >= 4) { // HCI_EVT_CMD_STATUS: status, ncmd, opcode
+            ble_host_on_command_status((uint16_t)(buf[2] | (buf[3] << 8)), buf[0]);
+            if (buf[0] != 0 && (buf[2] | (buf[3] << 8)) == 0x200D) {
+                bt_resume_scan(); // LE_Create_Connection rejected: scan again and retry
+            }
+            continue;
+        }
+
         if (evt == 0x3E && len >= 2) { // HCI_EVT_LE_META
             uint8_t subevent = buf[0];
             if (subevent == 0x02) {    // HCI_EVT_LE_ADVERTISING_REPORT
@@ -548,7 +665,7 @@ void bcm43438_poll(void) {
 
                             // Stop scanning before connecting
                             uint8_t stop_scan[2] = { 0x00, 0x00 };
-                            bt_send_hci(0x200C, stop_scan, 2);
+                            bcm43438_send_cmd(0x200C, stop_scan, 2);
                             bt_wait_cmd_complete(0x200C, 100);
 
                             // Issue HCI_LE_Create_Connection (Opcode 0x200D, 25 bytes parameters)
@@ -567,7 +684,7 @@ void bcm43438_poll(void) {
                             conn_param[21] = 0x00; conn_param[22] = 0x00; // Min CE Length
                             conn_param[23] = 0x00; conn_param[24] = 0x00; // Max CE Length
 
-                            bt_send_hci(0x200D, conn_param, 25);
+                            bcm43438_send_cmd(0x200D, conn_param, 25);
                         }
                     }
                 }
@@ -581,25 +698,24 @@ void bcm43438_poll(void) {
                     bcm43438_draw_debug_hud();
                     printk("[BLE] Successfully connected! Conn Handle: 0x%04X\n", handle);
                     xbox_ble_set_connected(true);
+                    // buf[5] = peer address type, buf[6..11] = peer address
+                    ble_host_on_connect(handle, buf[5], &buf[6]);
                 } else {
                     snprintf(ble_info_str, sizeof(ble_info_str), "Connection failed with status 0x%02X", status);
                     bcm43438_draw_debug_hud();
+                    bt_resume_scan();
                 }
             }
         } else if (evt == 0x05 && len >= 3) { // HCI_EVT_DISCONN_COMPLETE
             uint8_t reason = buf[3];
             xbox_connected = false;
-            xbox_found = false;
             strncpy(ble_status_str, "DISCONNECTED", sizeof(ble_status_str));
             snprintf(ble_info_str, sizeof(ble_info_str), "Controller disconnected (reason 0x%02X). Resuming scan...", reason);
             bcm43438_draw_debug_hud();
 
             xbox_ble_set_connected(false);
-
-            // Resume scanning
-            uint8_t scan_en[2] = { 0x01, 0x00 };
-            bt_send_hci(0x200C, scan_en, 2);
-            bt_wait_cmd_complete(0x200C, 100);
+            ble_host_on_disconnect();
+            bt_resume_scan();
         }
     }
 }

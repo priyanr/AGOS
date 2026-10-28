@@ -29,7 +29,7 @@ void exception_report(uint64_t esr, uint64_t elr, uint64_t far) {
     snprintf(line, sizeof(line), "!! CPU EXCEPTION  ESR=0x%08X  ELR=0x%08X  FAR=0x%08X",
              (unsigned int)esr, (unsigned int)elr, (unsigned int)far);
     printk("\n%s\n", line);
-    fb_draw_string_at(0, 5, line, 0x00FFFFFF, 0x00B91C1C); // White on red, below the BLE debug lines
+    fb_draw_string_at(0, 7, line, 0x00FFFFFF, 0x00B91C1C); // White on red, below the BLE/audio debug lines
 }
 
 // 16-byte aligned mailbox request buffer

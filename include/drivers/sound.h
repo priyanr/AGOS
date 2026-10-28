@@ -11,4 +11,7 @@ void sound_play_tone(uint32_t frequency_hz);
 void sound_play_divisor(int pit_divisor);
 void sound_stop(void);
 
+// One-line driver state for the on-screen debug lines (Raspberry Pi HDMI audio driver only)
+const char *sound_status_line(void);
+
 #endif // DRIVERS_SOUND_H

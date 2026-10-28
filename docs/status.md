@@ -50,10 +50,11 @@
 - **Architecture**: AArch64 (ARMv8-A 64-bit).
 - **Physical Boot Chain**: VideoCore GPU loads `bootcode.bin` and `start.elf` from FAT32 partition, reads `config.txt` (`arm_64bit=1`, `hdmi_force_hotplug=1`, `hdmi_drive=2`, `config_hdmi_boost=4`), and loads `kernel8.img` to `0x80000`.
 - **Physical Display & Framebuffer**: Linear 1024x768 (32 BPP) framebuffer allocated via VideoCore Mailbox property tags; full HDMI video output physically verified on real Raspberry Pi 3 hardware.
-- **Audio**: VideoCore VCHIQ audio channel initialized in HDMI mode.
+- **Audio** (built 2026-10-28, not yet verified on hardware): the old VCHIQ driver was a placeholder that never sent audio. Replaced by `sound_hdmi.c`: HDMI MAI FIFO fed by DMA channel 5 (DREQ 17) looping over a 100 ms buffer of IEC958 subframes at 48 kHz, N/CTS clock regeneration from the mailbox pixel clock, Audio InfoFrame in HDMI RAM packet 4. Register sequence follows Linux vc4_hdmi; HSM clock assumed 163.682864 MHz. Debug line `[AUDIO]` shows MAI_CTL / DMA state.
 - **Input & Gamepad**: Paratrooper arcade game running with keyboard/serial input and Gamepad HAL.
 - **Bluetooth BLE Subsystem** (verified on Pi 3B rev `0xA02082`, 2026-10-27): BCM43438 powered via mailbox BT_ON (expander GPIO 128) with 32 kHz LPO on GPIO 43, PL011 on GPIO 32/33 at 115200, patchram firmware upload, LE scan, Xbox controller detection (HID UUID 0x1812 / gamepad appearance 0x03C4) and LE connection all work. UART RX is IRQ-driven into a 4 KB ring (EL1 vector table in `boot.S`); unhandled CPU exceptions now print ESR/ELR/FAR on screen. Console moved to the mini-UART (GPIO 14/15).
-- **Open (BLE)**: SMP pairing, GATT discovery / HID notification enable, and ACL report routing are not implemented, so the controller connects but sends no input. Pairing keys are not persisted. RX byte counter looked unexpectedly high (20 M) on one run; not yet investigated.
+- **BLE host** (built 2026-10-28, not yet verified on hardware): `ble_host.c` does SMP legacy Just Works pairing (software AES-128; c1/s1 checked against the Core spec test vectors on the PC), LE encryption, GATT Find Information discovery of HID Report characteristics, CCCD notification enable, L2CAP connection-parameter updates, and routes report notifications to `xbox_ble_parse_report()`. Progress shows on the `[BLE LINK]` debug line. Xbox button bits fixed (View 10, Menu 11, Guide 12, LS 13, RS 14).
+- **Open (BLE)**: verify pairing on hardware (risk: controller may insist on LE Secure Connections, which needs P-256 and is not implemented). Keys are RAM-only, so the controller must be put in pairing mode after every Pi boot. RX byte counter looked unexpectedly high (20 M) on one run; `[BLE DIAG]` line added to investigate.
 
 ---
 

@@ -62,8 +62,20 @@ void bluetooth_init(void);
 void bluetooth_process_byte(uint8_t byte);
 void bluetooth_send_cmd(uint16_t opcode, const void *param, uint8_t param_len);
 
-// Raspberry Pi Broadcom BCM43438 Hardware Driver
+// Raspberry Pi Broadcom BCM43438 Hardware Driver (HCI transport)
 void bcm43438_init(void);
 void bcm43438_poll(void);
+void bcm43438_send_cmd(uint16_t opcode, const uint8_t *param, uint8_t param_len);
+void bcm43438_send_acl(uint16_t handle, const uint8_t *data, uint16_t len);
+
+// BLE host (ble_host.c): L2CAP, SMP pairing, GATT for the Xbox controller
+void ble_host_set_own_address(const uint8_t addr[6]);
+void ble_host_on_connect(uint16_t handle, uint8_t addr_type, const uint8_t addr[6]);
+void ble_host_on_disconnect(void);
+void ble_host_on_encryption_change(uint8_t status, bool enabled);
+void ble_host_on_command_status(uint16_t opcode, uint8_t status);
+void ble_host_on_acl(uint16_t handle_flags, const uint8_t *data, uint16_t len);
+void ble_host_poll(void);
+const char *ble_host_status_line(void);
 
 #endif // DRIVERS_BLUETOOTH_H

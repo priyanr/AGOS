@@ -94,9 +94,10 @@ else ifeq ($(ARCH),aarch64)
                         kernel/arch/aarch64/serial.c \
                         kernel/arch/aarch64/mailbox.c \
                         kernel/arch/aarch64/timer.c \
-                        kernel/arch/aarch64/sound_vchiq.c \
+                        kernel/arch/aarch64/sound_hdmi.c \
                         kernel/drivers/bluetooth/hci.c \
                         kernel/drivers/bluetooth/bcm43438.c \
+                        kernel/drivers/bluetooth/ble_host.c \
                         kernel/drivers/bluetooth/bcm43430a1_hcd.c \
                         kernel/drivers/bluetooth/xbox_ble.c \
                         kernel/drivers/input/gamepad.c \

@@ -30,7 +30,7 @@ flowchart TD
     subgraph AArch64 / Raspberry Pi Backend
         HCI["HCI Packet Dispatcher (hci.c)"]
         BLE_XBOX["Xbox BLE HID Report Parser (xbox_ble.c)"]
-        VCHIQ_SND["VideoCore VCHIQ HDMI Audio (sound_vchiq.c)"]
+        VCHIQ_SND["HDMI MAI + DMA Audio (sound_hdmi.c)"]
         MBOX_FB["VideoCore Mailbox FB 1024x768 (mailbox.c)"]
         PL011["PL011 UART & Mini-UART (serial.c)"]
         TIMER_ARM["ARM Generic Timer cntpct_el0 (timer.c)"]
@@ -149,7 +149,7 @@ Antigravity OS features an audio HAL ([`include/drivers/sound.h`](file:///f:/pri
 ```
 
 * **x86_64 Backend** ([`kernel/arch/x86_64/sound.c`](file:///f:/priyan/Projects/AI/OS/kernel/arch/x86_64/sound.c)): Directly programmes 8254 PIT Timer channel 2 (`0x42`/`0x43`) and enables the speaker gate bit on port `0x61`.
-* **Raspberry Pi Backend** ([`kernel/arch/aarch64/sound_vchiq.c`](file:///f:/priyan/Projects/AI/OS/kernel/arch/aarch64/sound_vchiq.c)): Handshakes with the VideoCore GPU firmware via VCHIQ over Mailbox Channel 3. Converts retro frequency divisors into 44.1 kHz 16-bit stereo PCM buffers and streams them to the `AUDS` service for HDMI injection.
+* **Raspberry Pi Backend** (`kernel/arch/aarch64/sound_hdmi.c`): feeds the HDMI MAI audio FIFO by DMA from a looping buffer of 48 kHz IEC958 subframes; `sound_play_tone()` rewrites the buffer with a square wave. Not yet verified on hardware.
 
 ---
 
@@ -250,13 +250,13 @@ To run on a real Raspberry Pi 3:
 - [x] ARM Generic Timer Driver (`kernel/arch/aarch64/timer.c`).
 - [x] Unified Sound HAL (`include/drivers/sound.h`).
 - [x] PC Speaker x86_64 Sound Driver (`kernel/arch/x86_64/sound.c`).
-- [x] VideoCore VCHIQ HDMI Audio Driver (`kernel/arch/aarch64/sound_vchiq.c`).
+- [ ] HDMI Audio Driver, MAI + DMA (`kernel/arch/aarch64/sound_hdmi.c`): written, not yet verified on hardware. Replaces the VCHIQ placeholder, which never sent audio.
 - [x] BLE HCI Packet Router & Event Framing (`kernel/drivers/bluetooth/hci.c`).
 - [x] Xbox Wireless Controller 16-byte BLE HID Report Parser (`kernel/drivers/bluetooth/xbox_ble.c`).
-- [ ] **Step 1**: Dedicated PL011 UART driver to BCM43438 Bluetooth chip (GPIO 30-33, pinmux, CTS/RTS).
-- [ ] **Step 2**: Broadcom BCM43438 `.hcd` patchram firmware loader over UART (`BCM43430A1.hcd`).
-- [ ] **Step 3**: HCI command dispatcher (`bluetooth_send_cmd`), `HCI_Reset`, and active BLE scanning (`HCI_LE_Set_Scan_Enable`).
-- [ ] **Step 4**: BLE connection establishment (`HCI_LE_Create_Connection`).
-- [ ] **Step 5**: Standalone Security Manager Protocol (SMP) cryptographic AES-128 engine for Xbox pairing.
-- [ ] **Step 6**: GATT discovery & CCCD `0x2902` notification subscription.
-- [ ] **Step 7**: Fragmented L2CAP/ACL packet reassembler in HCI layer.
+- [x] **Step 1**: Dedicated PL011 UART driver to BCM43438 Bluetooth chip (GPIO 30-33, pinmux, CTS/RTS).
+- [x] **Step 2**: Broadcom BCM43438 `.hcd` patchram firmware loader over UART (`BCM43430A1.hcd`).
+- [x] **Step 3**: HCI command dispatcher (`bluetooth_send_cmd`), `HCI_Reset`, and active BLE scanning (`HCI_LE_Set_Scan_Enable`).
+- [x] **Step 4**: BLE connection establishment (`HCI_LE_Create_Connection`).
+- [ ] **Step 5**: SMP legacy Just Works pairing with software AES-128 (`kernel/drivers/bluetooth/ble_host.c`): written, not yet verified on hardware.
+- [ ] **Step 6**: GATT discovery & CCCD `0x2902` notification subscription (`ble_host.c`): written, not yet verified on hardware.
+- [ ] **Step 7**: Fragmented L2CAP/ACL reassembly: not needed while ATT MTU stays 23 (every PDU fits one 27-byte LE fragment).

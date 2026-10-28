@@ -50,17 +50,19 @@ void xbox_ble_parse_report(const uint8_t *data, size_t len) {
         default: break;
     }
 
-    // Decode standard Xbox buttons
+    // Decode standard Xbox buttons (BLE firmware 5.x report: HID buttons 1..15, with gaps at
+    // 3, 6, 9 and 10; same bit layout SDL uses for the Bluetooth Xbox controller)
     if (rep->buttons & (1 << 0)) gp.buttons |= GAMEPAD_BTN_A;
     if (rep->buttons & (1 << 1)) gp.buttons |= GAMEPAD_BTN_B;
     if (rep->buttons & (1 << 3)) gp.buttons |= GAMEPAD_BTN_X;
     if (rep->buttons & (1 << 4)) gp.buttons |= GAMEPAD_BTN_Y;
     if (rep->buttons & (1 << 6)) gp.buttons |= GAMEPAD_BTN_LB;
     if (rep->buttons & (1 << 7)) gp.buttons |= GAMEPAD_BTN_RB;
-    if (rep->buttons & (1 << 8)) gp.buttons |= GAMEPAD_BTN_VIEW;
-    if (rep->buttons & (1 << 9)) gp.buttons |= GAMEPAD_BTN_MENU;
-    if (rep->buttons & (1 << 11)) gp.buttons |= GAMEPAD_BTN_LS_CLICK;
-    if (rep->buttons & (1 << 12)) gp.buttons |= GAMEPAD_BTN_RS_CLICK;
+    if (rep->buttons & (1 << 10)) gp.buttons |= GAMEPAD_BTN_VIEW;
+    if (rep->buttons & (1 << 11)) gp.buttons |= GAMEPAD_BTN_MENU;
+    if (rep->buttons & (1 << 12)) gp.buttons |= GAMEPAD_BTN_GUIDE;
+    if (rep->buttons & (1 << 13)) gp.buttons |= GAMEPAD_BTN_LS_CLICK;
+    if (rep->buttons & (1 << 14)) gp.buttons |= GAMEPAD_BTN_RS_CLICK;
 
     gamepad_update_state(&gp);
 }
