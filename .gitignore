@@ -8,6 +8,7 @@
 # Build directories
 iso_root/
 mnt_ext4/
+output/
 
 # Python cache
 __pycache__/
@@ -16,3 +17,6 @@ __pycache__/
 # IDE / Tool configs
 .claude/
 .vscode/
+
+# Third-party firmware: downloaded by the Makefile, never committed (licences)
+firmware-rpi/

@@ -3,6 +3,36 @@
 
 #include <kernel/types.h>
 
+#if defined(__aarch64__)
+
+static inline void io_wait(void) { }
+static inline uint8_t inb(uint16_t port) { (void)port; return 0; }
+static inline void outb(uint16_t port, uint8_t val) { (void)port; (void)val; }
+static inline uint16_t inw(uint16_t port) { (void)port; return 0; }
+static inline void outw(uint16_t port, uint16_t val) { (void)port; (void)val; }
+static inline uint32_t inl(uint16_t port) { (void)port; return 0; }
+static inline void outl(uint16_t port, uint32_t val) { (void)port; (void)val; }
+
+static inline void cli(void) {
+    __asm__ volatile ("msr daifset, #2" ::: "memory");
+}
+
+static inline void sti(void) {
+    __asm__ volatile ("msr daifclr, #2" ::: "memory");
+}
+
+static inline void hlt(void) {
+    __asm__ volatile ("wfi");
+}
+
+static inline uint64_t rdtsc(void) {
+    uint64_t val;
+    __asm__ volatile ("mrs %0, cntpct_el0" : "=r"(val));
+    return val;
+}
+
+#else // x86_64
+
 static inline void io_wait(void) {
     __asm__ volatile ("outb %%al, $0x80" : : "a"(0));
 }
@@ -106,5 +136,7 @@ static inline uint64_t rdtsc(void) {
     __asm__ volatile ("rdtsc" : "=a"(low), "=d"(high));
     return ((uint64_t)high << 32) | low;
 }
+
+#endif // __aarch64__
 
 #endif // HAL_CPU_H

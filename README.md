@@ -1,13 +1,17 @@
 # Antigravity OS
 
 <p align="center">
-  <b>A modern, freestanding x86_64 operating system built from scratch in C11.</b>
+  <b>A modern, freestanding operating system for x86_64 PCs and the Raspberry Pi 3 (AArch64), built from scratch in C11.</b>
   <br />
   Featuring preemptive multitasking, a custom ext4 filesystem engine with extent trees, pure-C <code>mkfs.ext4</code> formatter, MBR partition manager, native self-installer, ATA/AHCI storage drivers, and integrated Microsoft GW-BASIC runtime.
+  <br />
+  On the Raspberry Pi 3 it boots straight into Paratrooper with HDMI audio, played with an Xbox Wireless Controller over its own Bluetooth LE stack.
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Architecture-x86__64%20(Long%20Mode)-blue?style=flat-square" alt="x86_64" />
+  <img src="https://img.shields.io/badge/Architecture-AArch64%20(Raspberry%20Pi%203)-C51A4A?style=flat-square" alt="AArch64 Raspberry Pi 3" />
+  <img src="https://img.shields.io/badge/Bluetooth%20LE-Xbox%20Controller-107C10?style=flat-square" alt="Bluetooth LE Xbox Controller" />
   <img src="https://img.shields.io/badge/Language-C11%20Freestanding-00599C?style=flat-square" alt="C11 Freestanding" />
   <img src="https://img.shields.io/badge/Bootloader-Limine%20v2%20(BIOS%20%2B%20UEFI)-orange?style=flat-square" alt="Limine" />
   <img src="https://img.shields.io/badge/Filesystem-ext4%20(Extent%20Trees)-green?style=flat-square" alt="ext4" />
@@ -47,7 +51,34 @@
 >
 > * **Tooling & AI Model**: This project was an experiment built using the **Antigravity CLI (`agy`)** and **Gemini 3.8 Flash (Medium)**.
 > * **Speed & Efficiency**: The entire operating system was built from scratch in **under 3 hours** within a single session limit, consuming **just ~5% of the weekly quota**.
-> * **AI Pair Programming**: Other than one stubborn keyboard input bug that Gemini struggled to fix — where **Claude Opus** was brought in and pinpointed the issue in under a minute — **everything else across the entire OS was written end-to-end by Gemini**.
+> * **AI Pair Programming**: Even in the first x86_64 build, Gemini struggled with one stubborn keyboard input bug: **Claude Opus** was brought in, found the cause in under a minute, and **Gemini then implemented the fix**. Apart from that diagnosis, **the original x86_64 OS was written end-to-end by Gemini**.
+
+### LLM Experiment: the Raspberry Pi 3 Port
+
+The ARM port was a second experiment: split the work between two models and see where each one
+gets stuck on real hardware (Raspberry Pi 3 Model B + Xbox Wireless Controller, tested by hand
+from photos of the TV).
+
+| Part | Model | Outcome |
+|---|---|---|
+| Initial code: AArch64 boot, ARM HAL (mailbox framebuffer, timer, UART), gamepad HAL, Xbox report parser, multi-arch build scripts, SD image packaging | **Gemini 3.8 Flash** (Antigravity CLI) | Worked: Paratrooper booted on the Pi over HDMI |
+| Bluetooth radio bring-up: BCM43438 power-on via mailbox, patchram firmware upload, LE scan, on-screen debug HUD | **Gemini 3.8 Flash**, reviewed by Claude | Partly: chip powered and scanning after several review rounds |
+| **HDMI audio** | Gemini 3.8 Flash struggled | Its VCHIQ driver was a placeholder that never sent any audio |
+| **Bluetooth LE stack** (pairing, encryption, GATT, HID input) | Gemini 3.8 Flash struggled | Scaffolding only; the docs described a handshake that did not exist |
+| HDMI audio driver (HDMI MAI FIFO fed by DMA, IEC958 framing), BLE host written from scratch (L2CAP, SMP pairing with its own AES-128, GATT discovery, HID-host sequence), boot-hang and UART fixes, MMU + caches for full game speed, firmware licensing cleanup | **Claude Opus 5.5 (medium effort)** in Claude Code | Working on hardware: controller pairs and plays Paratrooper with HDMI sound |
+
+Notes from the experiment:
+- **Where Gemini got stuck**: hardware details with no feedback. A silent hang turned out to be one
+  unaligned store (the MMU was off, so it faulted with no exception handler); a 16-byte UART FIFO
+  silently dropped the controller's advertisements; the Xbox controller only leaves pairing mode for
+  a host that bonds first, sends its identity keys and reads the HID Report Map before subscribing.
+- **How Claude worked through it**: added on-screen diagnostics (link state, GATT table, raw
+  notifications, audio and DMA registers) so each test boot answered one question, tested the
+  pairing crypto against the Bluetooth spec's test vectors on the PC, and simulated the GATT flow
+  on the PC before each hardware run.
+- **Share of the current Pi / Bluetooth code** (by `git blame`, excluding firmware): about 59%
+  Claude Opus 5.5, 17% Gemini 3.8 Flash in this port, 23% earlier Gemini code it builds on.
+- Full log of every step and why: [`docs/history.md`](docs/history.md).
 
 ---
 
@@ -70,6 +101,7 @@
 - 📟 **Interactive Shell & Console**: Linear 1024x768x32 framebuffer terminal with smooth 64-bit word scrolling, custom 8x16 bitmap font, dual keyboard (PS/2) and serial (UART 16550 COM1) I/O.
 - 📜 **Classic Microsoft GW-BASIC (1983)**: Fully integrated GW-BASIC interpreter capable of running interactive sessions and standalone `.bas` script files from ext4 storage.
 - 🪂 **Paratrooper (1982) Arcade Game**: Pure freestanding C11 source port of the legendary 1982 Orion Software game featuring upscaled CGA Mode 4 graphics, real-time PC Speaker audio, and authentic troop drop/takeover mechanics.
+- 🍓 **Raspberry Pi 3 (AArch64) Port**: `make ARCH=aarch64` builds a bootable SD card image. Paratrooper runs over HDMI with HDMI audio, played with an **Xbox Wireless Controller over Bluetooth LE** through the kernel's own BCM43438 driver and BLE host (pairing, encryption, HID over GATT). See [`docs/arm_ble_xbox_roadmap.md`](docs/arm_ble_xbox_roadmap.md).
 
 ---
 
@@ -231,8 +263,8 @@ sudo apt install -y build-essential gcc ld xorriso mtools
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/antigravity-os.git
-cd antigravity-os
+git clone https://github.com/priyanr/AGOS.git
+cd AGOS
 
 # Clean and compile kernel ELF, test ext4 image, and bootable hybrid ISO
 make clean
@@ -246,6 +278,77 @@ The build produces:
 - `kernel.elf`: The freestanding 64-bit kernel ELF executable.
 - `disk.img`: Pre-populated 32MB ext4 test storage image.
 - `antigravity-os.iso`: Hybrid bootable ISO with Limine BIOS & UEFI bootloaders.
+
+---
+
+## Running on a Raspberry Pi 3
+
+Verified on a **Raspberry Pi 3 Model B** (board revision `a02082`) with an **Xbox Wireless
+Controller** (Bluetooth LE model, e.g. 1914) on an HDMI TV. The Pi boots straight into
+Paratrooper with HDMI sound; the controller pairs over the Pi's onboard Bluetooth.
+
+### 1. Build
+
+On Ubuntu / Debian / WSL2:
+
+```bash
+sudo apt install -y build-essential gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu mtools parted curl
+make ARCH=aarch64
+```
+
+The first build downloads the Raspberry Pi boot firmware and the Bluetooth chip firmware from
+pinned upstream commits into `firmware-rpi/` (see [Third-party firmware](#third-party-firmware)).
+From Windows, `.\build.ps1 aarch64` runs the same build inside WSL.
+
+Output in `output/aarch64/`:
+
+| File | Purpose |
+|---|---|
+| `kernel8.img` | The Antigravity OS kernel (Bluetooth firmware linked in) |
+| `config.txt` | GPU firmware settings: 64-bit mode, HDMI forced on, UART clocks |
+| `bootcode.bin`, `start.elf`, `fixup.dat` | Raspberry Pi GPU boot firmware |
+| `LICENCE.broadcom`, `LICENSE.cypress` | Licences of the firmware |
+| `antigravity-rpi.img` | Ready-to-flash 64 MB SD card image containing all of the above |
+
+### 2. Prepare the microSD card
+
+Either:
+- **Flash the image**: write `output/aarch64/antigravity-rpi.img` with Raspberry Pi Imager
+  ("Use custom"), Rufus, balenaEtcher, or `sudo dd if=output/aarch64/antigravity-rpi.img of=/dev/sdX bs=4M conv=fsync`.
+- **Or copy files**: format the card as FAT32 and copy `kernel8.img`, `config.txt`,
+  `bootcode.bin`, `start.elf`, `fixup.dat` and the two licence files to its root.
+
+After a code change only `kernel8.img` needs to be copied again.
+
+### 3. Boot and pair the controller
+
+1. Insert the card, connect HDMI, power the Pi. Boot messages appear, then Paratrooper starts.
+2. **First time**: hold the controller's **pairing button** (top edge, next to USB-C) until the Xbox
+   logo flashes fast. The Pi finds it, pairs, and the logo turns solid.
+3. **Afterwards**: just switch the controller on with the Xbox button; it reconnects to the Pi,
+   also after the Pi was rebooted.
+
+### 4. Controls
+
+| Controller | Paratrooper |
+|---|---|
+| Left stick / D-pad left-right | Turn the gun |
+| A, RB or right trigger | Fire |
+| Menu (or A on the title screen) | Start a game |
+| View or Xbox button | Quit to the title screen |
+
+### 5. Troubleshooting
+
+- **Nothing on screen**: the card must be FAT32 and contain `bootcode.bin`, `start.elf`,
+  `fixup.dat`, `config.txt` and `kernel8.img` in its root.
+- **Controller does not connect**: put it in pairing mode again; make sure it is not currently
+  connected to another device (PC, console, phone).
+- **Debug screen**: set `BLE_DEBUG_SCREEN` to `1` in `include/drivers/bluetooth.h` (and optionally
+  `LAUNCH_PARATROOPER` to `0` in `kernel/arch/aarch64/kmain.c`) and rebuild. The screen then shows
+  Bluetooth link state, the controller's GATT table, live button state and HDMI audio state.
+  Details: [`docs/arm_ble_xbox_roadmap.md`](docs/arm_ble_xbox_roadmap.md).
+- **QEMU**: `make ARCH=aarch64 run` boots the kernel in QEMU's `raspi3` machine for a quick check
+  (no Bluetooth; QEMU cannot emulate the looping HDMI audio DMA).
 
 ---
 
@@ -287,6 +390,8 @@ The build produces:
 - 🏛️ [**Architecture Guide** (`docs/architecture.md`)](docs/architecture.md)
 - 📊 [**System Status & Roadmap** (`docs/status.md`)](docs/status.md)
 - 🛠️ [**Utilities & Command Reference** (`docs/utilities.md`)](docs/utilities.md)
+- 🍓 [**Raspberry Pi, Bluetooth & Xbox Controller Guide** (`docs/arm_ble_xbox_roadmap.md`)](docs/arm_ble_xbox_roadmap.md)
+- 📜 [**Change History** (`docs/history.md`)](docs/history.md)
 - 🤖 [**Agent & LLM Developer Spec** (`AGENTS.md`)](AGENTS.md)
 
 ---
@@ -294,3 +399,17 @@ The build produces:
 ## License
 
 Antigravity OS is released under the **MIT License**. See [LICENSE](LICENSE) for details.
+
+### Third-party firmware
+
+The Raspberry Pi build needs proprietary firmware that is **not** part of this repository and is
+**not** covered by the MIT License. The Makefile downloads it at build time, unmodified, from
+pinned upstream commits:
+
+| Files | Source | Licence |
+|---|---|---|
+| `bootcode.bin`, `start.elf`, `fixup.dat` | [raspberrypi/firmware](https://github.com/raspberrypi/firmware) (`boot/`) | Broadcom / Raspberry Pi, `LICENCE.broadcom`: redistribution in binary form with the notice; for use with Raspberry Pi devices only |
+| `BCM43430A1.hcd` (Bluetooth patchram, linked into `kernel8.img` unchanged) | [RPi-Distro/bluez-firmware](https://github.com/RPi-Distro/bluez-firmware) (`debian/firmware/broadcom/`) | Cypress, `LICENSE.cypress`: for use with Cypress/Broadcom chips only |
+
+Both licence texts are downloaded alongside the firmware and copied onto the SD card image. The
+Limine bootloader binaries in `limine-bin/` carry their own licence ([`limine-bin/LICENSE`](limine-bin/LICENSE)).

@@ -168,3 +168,30 @@ The kernel defines Limine protocol requests inside the `.limine_requests` ELF se
   - Embedded assets from `original-pt.com` and IBM CGA font data compiled directly into the kernel.
 - **Native OS Installer** ([`kernel/shell/installer.c`](file:///F:/priyan/Projects/AI/OS/kernel/shell/installer.c)):
   - Automated 4-step wizard that partitions disks with dual FAT32 + ext4 layout, formats both filesystems, deploys kernel ELF, bootloader files, configuration, and Limine MBR bootsector, and hot-mounts the root filesystem.
+
+## 7. Raspberry Pi 3 (AArch64) Port
+
+Built with `make ARCH=aarch64`; separate source list in the `Makefile`, entry in `kernel/arch/aarch64/`.
+Details, protocol flow and debugging: [`arm_ble_xbox_roadmap.md`](arm_ble_xbox_roadmap.md).
+
+- **Boot**: the GPU firmware loads `kernel8.img` at `0x80000`; `boot.S` drops to EL1, installs the
+  EL1 vector table and zeroes BSS. The MMU stays off, so every data access is Device memory.
+  - Decision: build with `-mstrict-align`. Without it GCC emitted unaligned stores (e.g. a 7-byte
+    array on the stack), which fault with the MMU off and hung the boot silently.
+  - Decision: unhandled exceptions print ESR/ELR/FAR on screen (`exception_report()`) instead of hanging.
+- **Console**: mini-UART on GPIO 14/15 (`serial.c`); the PL011 is reserved for the Bluetooth chip.
+- **Bluetooth** (`kernel/drivers/bluetooth/`):
+  - `bcm43438.c`: BT_ON via mailbox (expander GPIO 128), 32 kHz LPO on GPIO 43, PL011 on GPIO 32/33
+    at 115200, patchram upload, LE scan/connect, HCI command/ACL transport.
+  - Decision: UART RX is interrupt-driven (`irq_entry` in `boot.S` fills a 4 KB ring). The PL011 FIFO
+    is 16 bytes, which overflowed during one Paratrooper frame and lost advertisements. The handler is
+    pure assembly so it cannot clobber the FP/SIMD registers the C code uses.
+  - `ble_host.c`: own minimal BLE host for one controller (L2CAP, SMP legacy Just Works with software
+    AES-128, ATT/GATT). Decision: no third-party stack; the Xbox controller only needs one bonded,
+    encrypted link with HID notifications, and the full HID-host sequence (bond, identity keys, read
+    HID values, then subscribe) is what makes pairing mode finish.
+  - `xbox_ble.c`: HID report to Gamepad HAL. Paratrooper reads the HAL, not Bluetooth.
+- **Audio** (`kernel/arch/aarch64/sound_hdmi.c`): HDMI MAI FIFO fed by DMA channel 5 (DREQ 17) from a
+  looping buffer of IEC958 subframes. Decision: drive the HDMI audio hardware directly (Linux vc4_hdmi
+  sequence) instead of VCHIQ, which needs a large shared-memory protocol with the GPU.
+- **Debug flags**: `BLE_DEBUG_SCREEN` (`include/drivers/bluetooth.h`) and `LAUNCH_PARATROOPER` (`kmain.c`).
