@@ -42,6 +42,18 @@
 >
 > *(An offline copy is also available in the repository at [`docs/demo.mp4`](docs/demo.mp4))*
 
+### Raspberry Pi 3: Paratrooper with an Xbox controller
+
+<p align="center">
+  <a href="https://youtu.be/qdKW4SZYyeY" target="_blank">
+    <img src="https://img.youtube.com/vi/qdKW4SZYyeY/maxresdefault.jpg" alt="Antigravity OS on Raspberry Pi 3: Paratrooper with an Xbox controller" width="800" style="max-width: 100%; border-radius: 8px;" />
+  </a>
+  <br />
+  <em>▶️ <b><a href="https://youtu.be/qdKW4SZYyeY">Watch the Raspberry Pi 3 demo on YouTube</a></b> (Paratrooper on a Raspberry Pi 3, played with an Xbox Wireless Controller over Bluetooth LE)</em>
+</p>
+
+> *(An offline copy is also available in the repository at [`docs/rpi_paratrooper_xbox.mp4`](docs/rpi_paratrooper_xbox.mp4))*
+
 ---
 
 ## 🧪 About This Experiment
