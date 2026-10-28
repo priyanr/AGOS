@@ -3,6 +3,14 @@
 
 #include <kernel/types.h>
 
+// Place a buffer the GPU or a DMA engine reads/writes directly (mailbox messages, DMA control
+// blocks and data) in the uncached block set up by mmu.c, so CPU caches never hide it
+#define GPU_SHARED __attribute__((section(".bss.gpu_shared")))
+
+// Identity-mapped MMU with caches on (mmu.c): RAM write-back, GPU memory and GPU_SHARED
+// uncached, peripherals Device. Call once, early, before the framebuffer is set up.
+void mmu_init(void);
+
 static inline void mmio_write32(uintptr_t reg, uint32_t val) {
     *(volatile uint32_t *)reg = val;
 }

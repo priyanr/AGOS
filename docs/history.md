@@ -3,6 +3,13 @@
 Append-only log of what was done and why, **newest entry first**. Older entries move to
 `docs/history-archive/<year>.md` when this file passes ~1500 lines.
 
+### Pi performance: MMU + caches, max ARM clock (feature/arm-ble-xbox, 2026-10-28)
+- What: identity-mapped MMU with data and instruction caches (`mmu.c`): RAM write-back, GPU memory/framebuffer and a GPU_SHARED block (mailbox and DMA buffers) uncached, peripherals Device. ARM clock raised to its maximum via mailbox. Mailbox and HDMI packet waits now use the ms timer.
+- Why: Paratrooper was slow on the Pi; with the MMU off every access (each framebuffer pixel of the 1024x768 upscale) was an uncached strongly-ordered write.
+- Touched: `mmu.c` (new), `linker.ld`, `arm.h`, `mailbox.c`, `kmain.c`, `sound_hdmi.c`, `bcm43438.c`, `Makefile`. Existing feature affected: all Pi code now runs with caches on.
+- Verified: aarch64 build; QEMU raspi3 boots through MMU, mailbox and framebuffer (QEMU then stalls in the looping audio DMA, which it cannot emulate). Not yet run on the Pi.
+- Open: confirm game speed, Bluetooth and audio on hardware.
+
 ### Re-enable Paratrooper, BLE debug flag, docs (feature/arm-ble-xbox, 2026-10-28)
 - What: Paratrooper launches again on the Pi; Bluetooth debug rows and runtime [BLE] messages sit behind `BLE_DEBUG_SCREEN` (default 0, serial only). Docs updated for the verified Pi state.
 - Why: pairing and input work on hardware; debug output drew over the game.

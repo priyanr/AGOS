@@ -58,7 +58,7 @@ static bool xbox_found = false;
 static bool xbox_connected = false;
 
 // 16-byte aligned mailbox buffer
-static volatile uint32_t __attribute__((aligned(16))) mbox_buf[16];
+static volatile uint32_t __attribute__((aligned(16))) GPU_SHARED mbox_buf[16];
 
 // RX ring filled by the UART0 IRQ handler in boot.S (irq_entry). The PL011 FIFO is only
 // 16 bytes (~1.4 ms at 115200), far less than one Paratrooper frame, so polling loses data.

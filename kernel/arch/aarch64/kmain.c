@@ -33,7 +33,34 @@ void exception_report(uint64_t esr, uint64_t elr, uint64_t far) {
 }
 
 // 16-byte aligned mailbox request buffer
-static volatile uint32_t __attribute__((aligned(16))) mbox_buf[36];
+static volatile uint32_t __attribute__((aligned(16))) GPU_SHARED mbox_buf[36];
+
+// The firmware starts the ARM at its low idle clock (600 MHz on a Pi 3); ask for the maximum
+static void rpi_set_max_arm_clock(void) {
+    mbox_buf[0] = 8 * 4;
+    mbox_buf[1] = 0;
+    mbox_buf[2] = 0x00030004; // GET_MAX_CLOCK_RATE
+    mbox_buf[3] = 8;
+    mbox_buf[4] = 0;
+    mbox_buf[5] = 3;          // ARM clock
+    mbox_buf[6] = 0;
+    mbox_buf[7] = 0;
+    if (!mbox_call(MBOX_CH_PROP, mbox_buf) || mbox_buf[6] == 0) return;
+    uint32_t max_hz = mbox_buf[6];
+
+    mbox_buf[0] = 9 * 4;
+    mbox_buf[1] = 0;
+    mbox_buf[2] = 0x00038002; // SET_CLOCK_RATE
+    mbox_buf[3] = 12;
+    mbox_buf[4] = 0;
+    mbox_buf[5] = 3;          // ARM clock
+    mbox_buf[6] = max_hz;
+    mbox_buf[7] = 0;          // Do not skip turbo
+    mbox_buf[8] = 0;
+    if (mbox_call(MBOX_CH_PROP, mbox_buf)) {
+        printk("[CPU] ARM clock set to %d MHz\n", (int)(mbox_buf[6] / 1000000));
+    }
+}
 
 static bool rpi_init_framebuffer(uint32_t width, uint32_t height) {
     mbox_buf[0] = 35 * 4;
@@ -83,6 +110,8 @@ static bool rpi_init_framebuffer(uint32_t width, uint32_t height) {
 void kmain_aarch64(void) {
     serial_init();
     timer_init(1000);
+    mmu_init();
+    rpi_set_max_arm_clock();
 
     printk("\n===================================================\n");
     printk("   Antigravity OS - AArch64 (Raspberry Pi Edition)  \n");

@@ -93,6 +93,7 @@ else ifeq ($(ARCH),aarch64)
     AARCH64_C_SOURCES = kernel/arch/aarch64/kmain.c \
                         kernel/arch/aarch64/serial.c \
                         kernel/arch/aarch64/mailbox.c \
+                        kernel/arch/aarch64/mmu.c \
                         kernel/arch/aarch64/timer.c \
                         kernel/arch/aarch64/sound_hdmi.c \
                         kernel/drivers/bluetooth/hci.c \

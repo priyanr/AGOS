@@ -1,6 +1,7 @@
 #include <drivers/sound.h>
 #include <hal/aarch64/arm.h>
 #include <hal/aarch64/mailbox.h>
+#include <hal/timer.h>
 #include <kernel/printk.h>
 #include <kernel/string.h>
 
@@ -62,8 +63,8 @@
 #define BUFFER_FRAMES            (IEC958_BLOCK_FRAMES * 25) // 100 ms, whole blocks so the loop stays aligned
 #define TONE_AMPLITUDE           6000
 
-static uint32_t __attribute__((aligned(32))) dma_cb[8];
-static uint32_t __attribute__((aligned(32))) iec_buffer[BUFFER_FRAMES * 2];
+static uint32_t __attribute__((aligned(32))) GPU_SHARED dma_cb[8];
+static uint32_t __attribute__((aligned(32))) GPU_SHARED iec_buffer[BUFFER_FRAMES * 2];
 
 // Consumer channel status (first 5 of 24 bytes): PCM, no copyright, 48 kHz, 16-bit words
 static const uint8_t channel_status[5] = { 0x04, 0x00, 0x00, 0x02, 0x02 };
@@ -75,7 +76,7 @@ static uint32_t cts = 0;
 static uint32_t smp_n = 0;
 static uint32_t smp_m = 0;
 
-static volatile uint32_t __attribute__((aligned(16))) audio_mbox[8];
+static volatile uint32_t __attribute__((aligned(16))) GPU_SHARED audio_mbox[8];
 
 static uint32_t mbox_clock(uint32_t tag, uint32_t clock_id) {
     audio_mbox[0] = 8 * 4;
@@ -158,11 +159,12 @@ static void compute_mai_divider(void) {
     }
 }
 
+// The HDMI block picks up packet RAM changes once per frame, so allow up to 100 ms
 static void wait_ram_packet_status(uint32_t bit, bool set) {
-    for (int i = 0; i < 1000; i++) {
+    uint64_t start = timer_get_ticks();
+    while (timer_get_ticks() - start < 100) {
         bool is_set = (mmio_read32(HDMI_RAM_PACKET_STATUS) & bit) != 0;
         if (is_set == set) return;
-        arm_delay(1000);
     }
 }
 
