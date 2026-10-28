@@ -130,6 +130,16 @@ void bcm43438_draw_debug_hud(void) {
     fb_draw_string_at(0, 4, line4, 0x00FFFFFF, 0x000F172A); // White on dark slate
     fb_draw_string_at(0, 5, line3, 0x00F472B6, 0x000F172A); // Pink on dark slate
     fb_draw_string_at(0, 6, line5, 0x00C4B5FD, 0x000F172A); // Lavender on dark slate
+
+    // Rows 8..11: GATT attribute table from discovery (row 7 is kept for CPU exceptions)
+    for (int i = 0; i < 4; i++) {
+        char gatt[96];
+        char attrs[88];
+        if (!ble_host_attr_line(i, attrs, sizeof(attrs))) break;
+        snprintf(gatt, sizeof(gatt), "[GATT %d] %s", i, attrs);
+        hud_pad(gatt, sizeof(gatt));
+        fb_draw_string_at(0, (uint32_t)(8 + i), gatt, 0x00FDE68A, 0x000F172A); // Pale yellow on dark slate
+    }
 }
 
 // Low-level UART routines for the BCM43438 Bluetooth Controller

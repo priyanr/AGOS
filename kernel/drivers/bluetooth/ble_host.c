@@ -22,6 +22,8 @@
 #define ATT_MTU_RSP         0x03
 #define ATT_FIND_INFO_REQ   0x04
 #define ATT_FIND_INFO_RSP   0x05
+#define ATT_READ_BY_TYPE_REQ 0x08
+#define ATT_READ_BY_TYPE_RSP 0x09
 #define ATT_WRITE_REQ       0x12
 #define ATT_WRITE_RSP       0x13
 #define ATT_NOTIFY          0x1B
@@ -51,12 +53,13 @@ typedef enum {
     LINK_PAIRING,
     LINK_ENCRYPTING,
     LINK_DISCOVERING,
+    LINK_CHARS,
     LINK_ENABLING,
     LINK_READY,
 } link_state_t;
 
 static const char *const link_state_names[] = {
-    "IDLE", "PAIRING", "ENCRYPTING", "DISCOVERING", "ENABLING NOTIFY", "READY",
+    "IDLE", "PAIRING", "ENCRYPTING", "DISCOVERING", "CHARS", "ENABLING NOTIFY", "READY",
 };
 
 static link_state_t link_state = LINK_IDLE;
@@ -83,9 +86,13 @@ static uint8_t bond_ltk[16];
 static uint8_t bond_rand[8];
 static uint16_t bond_ediv = 0;
 
-// GATT discovery results
-static bool next_is_char_value = false;
-static uint16_t current_char_uuid = 0;
+// GATT discovery results. Pass 1 (Find Information) records every attribute handle and type;
+// pass 2 (Read By Type 0x2803) lists the characteristics with their properties and value handles.
+#define MAX_ATTRS 64
+static uint16_t attr_handles[MAX_ATTRS];
+static uint16_t attr_types[MAX_ATTRS];  // 16-bit type; 0xFFFF = vendor 128-bit UUID
+static int attr_count = 0;
+static int chars_seen = 0;
 static uint16_t report_handles[MAX_REPORTS];
 static int report_count = 0;
 static uint16_t cccd_handles[MAX_REPORTS];
@@ -95,8 +102,6 @@ static uint32_t reports_received = 0;
 
 // Diagnostics for the [BLE LINK] debug line
 static int find_info_responses = 0;
-static int attributes_seen = 0;
-static int services_seen = 0;
 static uint16_t last_attr_handle = 0;
 static uint8_t last_att_error_req = 0;
 static uint8_t last_att_error_code = 0;
@@ -288,17 +293,27 @@ static void send_find_info(uint16_t start) {
 }
 
 static void start_discovery(void) {
-    next_is_char_value = false;
-    current_char_uuid = 0;
+    attr_count = 0;
+    chars_seen = 0;
     report_count = 0;
     cccd_count = 0;
     cccd_next = 0;
     find_info_responses = 0;
-    attributes_seen = 0;
-    services_seen = 0;
     last_attr_handle = 0;
     set_state(LINK_DISCOVERING);
     send_find_info(0x0001);
+}
+
+// Read By Type for characteristic declarations (0x2803) from start to the end of the table
+static void send_read_chars(uint16_t start) {
+    uint8_t req[7] = { ATT_READ_BY_TYPE_REQ, (uint8_t)(start & 0xFF), (uint8_t)(start >> 8), 0xFF, 0xFF,
+                       (uint8_t)(UUID_CHARACTERISTIC & 0xFF), (uint8_t)(UUID_CHARACTERISTIC >> 8) };
+    l2cap_send(L2CAP_CID_ATT, req, 7);
+}
+
+static void start_char_discovery(void) {
+    set_state(LINK_CHARS);
+    send_read_chars(0x0001);
 }
 
 // Enable notifications on the next HID report CCCD, or finish
@@ -416,34 +431,68 @@ static void handle_find_info_rsp(const uint8_t *d, uint16_t len) {
         uint16_t uuid = (format == 0x01) ? (uint16_t)(d[p + 2] | (d[p + 3] << 8))
                                          : uuid16_from_uuid128(&d[p + 2]);
         last_handle = handle;
-        attributes_seen++;
-        if (uuid == UUID_PRIMARY_SERVICE) services_seen++;
-
-        if (uuid == UUID_PRIMARY_SERVICE || uuid == UUID_SECONDARY_SERVICE) {
-            current_char_uuid = 0;
-            next_is_char_value = false;
-        } else if (uuid == UUID_CHARACTERISTIC) {
-            next_is_char_value = true;
-        } else if (next_is_char_value) {
-            // The attribute after a characteristic declaration is its value; its UUID is the
-            // characteristic type
-            current_char_uuid = uuid;
-            next_is_char_value = false;
-            if (uuid == UUID_HID_REPORT && report_count < MAX_REPORTS) {
-                report_handles[report_count++] = handle;
-            }
-        } else if (uuid == UUID_CCCD && current_char_uuid == UUID_HID_REPORT && cccd_count < MAX_REPORTS) {
-            // Only input reports have a CCCD
-            cccd_handles[cccd_count++] = handle;
+        if (attr_count < MAX_ATTRS) {
+            attr_handles[attr_count] = handle;
+            attr_types[attr_count] = (uuid == 0) ? 0xFFFF : uuid;
+            attr_count++;
         }
     }
 
     if (last_handle != 0) last_attr_handle = last_handle;
     if (last_handle == 0 || last_handle == 0xFFFF) {
+        start_char_discovery();
+    } else {
+        send_find_info((uint16_t)(last_handle + 1));
+    }
+}
+
+// The CCCD of a characteristic is the 0x2902 descriptor between its value and the next
+// declaration; if the attribute table does not show one, assume the usual value + 1
+static uint16_t find_cccd(uint16_t value_handle) {
+    for (int i = 0; i < attr_count; i++) {
+        if (attr_handles[i] <= value_handle) continue;
+        uint16_t t = attr_types[i];
+        if (t == UUID_CHARACTERISTIC || t == UUID_PRIMARY_SERVICE || t == UUID_SECONDARY_SERVICE) break;
+        if (t == UUID_CCCD) return attr_handles[i];
+    }
+    return (uint16_t)(value_handle + 1);
+}
+
+// Read By Type response: entries of [declaration handle, properties, value handle, UUID]
+static void handle_read_chars_rsp(const uint8_t *d, uint16_t len) {
+    if (len < 2) return;
+    uint8_t entry_len = d[1];
+    if (entry_len != 7 && entry_len != 21) { // 16-bit or 128-bit characteristic UUID
+        set_error("Bad char entry length", entry_len);
+        set_state(LINK_ENABLING);
+        enable_next_cccd();
+        return;
+    }
+    uint16_t last_decl = 0;
+
+    for (int p = 2; p + entry_len <= len; p += entry_len) {
+        const uint8_t *e = &d[p];
+        uint16_t decl = (uint16_t)(e[0] | (e[1] << 8));
+        uint8_t props = e[2];
+        uint16_t value = (uint16_t)(e[3] | (e[4] << 8));
+        uint16_t uuid = (entry_len == 7) ? (uint16_t)(e[5] | (e[6] << 8)) : uuid16_from_uuid128(&e[5]);
+        last_decl = decl;
+        chars_seen++;
+
+        if (uuid == UUID_HID_REPORT && report_count < MAX_REPORTS) {
+            report_handles[report_count++] = value;
+            // Only input reports can notify (properties bit 4 notify, bit 5 indicate)
+            if ((props & 0x30) && cccd_count < MAX_REPORTS) {
+                cccd_handles[cccd_count++] = find_cccd(value);
+            }
+        }
+    }
+
+    if (last_decl == 0 || last_decl == 0xFFFF) {
         set_state(LINK_ENABLING);
         enable_next_cccd();
     } else {
-        send_find_info((uint16_t)(last_handle + 1));
+        send_read_chars((uint16_t)(last_decl + 1));
     }
 }
 
@@ -466,6 +515,10 @@ static void handle_att(const uint8_t *d, uint16_t len) {
         if (d[1] == ATT_FIND_INFO_REQ && link_state == LINK_DISCOVERING) {
             // 0x0A Attribute Not Found marks the end of the attribute table
             if (d[4] != 0x0A) set_error("Discovery error", d[4]);
+            start_char_discovery();
+        } else if (d[1] == ATT_READ_BY_TYPE_REQ && link_state == LINK_CHARS) {
+            // 0x0A Attribute Not Found: no more characteristic declarations
+            if (d[4] != 0x0A) set_error("Char discovery error", d[4]);
             set_state(LINK_ENABLING);
             enable_next_cccd();
         } else if (d[1] == ATT_WRITE_REQ && link_state == LINK_ENABLING) {
@@ -480,6 +533,9 @@ static void handle_att(const uint8_t *d, uint16_t len) {
     }
     case ATT_FIND_INFO_RSP:
         if (link_state == LINK_DISCOVERING) handle_find_info_rsp(d, len);
+        return;
+    case ATT_READ_BY_TYPE_RSP:
+        if (link_state == LINK_CHARS) handle_read_chars_rsp(d, len);
         return;
     case ATT_WRITE_RSP:
         if (link_state == LINK_ENABLING) enable_next_cccd();
@@ -620,14 +676,28 @@ void ble_host_poll(void) {
 
 const char *ble_host_status_line(void) {
     static char line[96];
-    // fi = Find Information responses, at = attributes, sv = services, last = highest handle,
-    // e = last ATT error (request opcode / error code), ltk = pairing key received
-    snprintf(line, sizeof(line), "%s|fi:%d at:%d sv:%d last:%04X e:%02X/%02X ltk:%d rep:%d cccd:%d rx:%d %s",
+    // fi = Find Information responses, at = attributes recorded, ch = characteristics listed,
+    // last = highest handle, e = last ATT error (request opcode / error code), ltk = pairing key received
+    snprintf(line, sizeof(line), "%s|fi:%d at:%d ch:%d last:%04X e:%02X/%02X ltk:%d rep:%d cccd:%d rx:%d %s",
              connected ? link_state_names[link_state] : "NO LINK",
-             find_info_responses, attributes_seen, services_seen, (unsigned int)last_attr_handle,
+             find_info_responses, attr_count, chars_seen, (unsigned int)last_attr_handle,
              (unsigned int)last_att_error_req, (unsigned int)last_att_error_code, ltk_received ? 1 : 0,
              report_count, cccd_count, (int)reports_received, link_error);
     return line;
+}
+
+// Attribute table from discovery as "handle:type" pairs, 11 per screen line (FFFF = vendor UUID).
+// Returns false when line_index is past the end of the table.
+bool ble_host_attr_line(int line_index, char *out, size_t size) {
+    int first = line_index * 11;
+    if (first >= attr_count || size == 0) return false;
+    size_t n = 0;
+    out[0] = '\0';
+    for (int i = first; i < attr_count && i < first + 11 && n + 9 < size; i++) {
+        snprintf(&out[n], size - n, "%02X:%04X ", (unsigned int)attr_handles[i], (unsigned int)attr_types[i]);
+        n += strlen(&out[n]);
+    }
+    return true;
 }
 
 #endif
