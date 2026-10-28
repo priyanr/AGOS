@@ -54,6 +54,7 @@ typedef enum {
     LINK_IDLE,
     LINK_PAIRING,
     LINK_ENCRYPTING,
+    LINK_BONDING,
     LINK_DISCOVERING,
     LINK_CHARS,
     LINK_ENABLING,
@@ -61,7 +62,7 @@ typedef enum {
 } link_state_t;
 
 static const char *const link_state_names[] = {
-    "IDLE", "PAIRING", "ENCRYPTING", "DISCOVERING", "CHARS", "ENABLING NOTIFY", "READY",
+    "IDLE", "PAIRING", "ENCRYPTING", "BONDING", "DISCOVERING", "CHARS", "ENABLING NOTIFY", "READY",
 };
 
 static link_state_t link_state = LINK_IDLE;
@@ -81,6 +82,7 @@ static uint8_t sconfirm[16];
 static uint8_t key_size = 16;
 static bool encrypting_with_bond = false;
 static bool identity_sent = false;
+static bool reconnect_kick_done = false; // once per boot, see ble_host_poll()
 
 // Bond from the last successful pairing (RAM only)
 static bool bond_valid = false;
@@ -423,6 +425,8 @@ static void handle_smp(const uint8_t *d, uint16_t len) {
             bond_valid = true;
             // EncKey was the last key the responder distributes (we asked for nothing else)
             send_identity_keys();
+            // Bonding is complete: only now set up GATT, so the CCCDs belong to the new bond
+            if (link_state == LINK_BONDING) start_discovery();
         }
         break;
     case SMP_SECURITY_REQ:
@@ -677,8 +681,15 @@ void ble_host_on_encryption_change(uint8_t status, bool enabled) {
         return;
     }
     if (link_state == LINK_ENCRYPTING) {
+        if (!encrypting_with_bond && (pres[6] & 0x01)) {
+            // Fresh pairing: wait for the controller's keys (SMP_MASTER_IDENT) before GATT.
+            // CCCD values are stored per bond; writing them while the bond is still being
+            // created left notifications off in pairing mode.
+            set_state(LINK_BONDING);
+            return;
+        }
         // Responder distributes no keys: our identity goes out right after encryption
-        if (!encrypting_with_bond && (pres[6] & 0x01) == 0) send_identity_keys();
+        if (!encrypting_with_bond) send_identity_keys();
         start_discovery();
     }
 }
@@ -712,7 +723,20 @@ void ble_host_on_acl(uint16_t handle_flags, const uint8_t *data, uint16_t len) {
 
 // Called every poll: give up on a step that never completes so the reconnect starts over
 void ble_host_poll(void) {
-    if (!connected || link_state == LINK_READY || link_state == LINK_IDLE) return;
+    if (!connected || link_state == LINK_IDLE) return;
+
+    if (link_state == LINK_READY) {
+        // A normal power-on (reconnect to the remembered Pi) always delivers input, a fresh
+        // pairing in pairing mode sometimes does not. If a fresh pairing gets no notification
+        // at all, drop the link once so the controller reconnects the normal way.
+        if (!encrypting_with_bond && !reconnect_kick_done && notifications_received == 0 &&
+            timer_get_ticks() - link_state_since > 5000) {
+            reconnect_kick_done = true;
+            set_error("No input after pairing: reconnecting", 0);
+            disconnect(0x13);
+        }
+        return;
+    }
     if (timer_get_ticks() - link_state_since > STEP_TIMEOUT_MS) {
         set_error("Timeout in state", (unsigned int)link_state);
         set_state(LINK_IDLE);
