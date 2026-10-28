@@ -24,7 +24,12 @@
 #define ATT_FIND_INFO_RSP   0x05
 #define ATT_READ_BY_TYPE_REQ 0x08
 #define ATT_READ_BY_TYPE_RSP 0x09
+#define ATT_READ_REQ        0x0A
+#define ATT_READ_RSP        0x0B
+#define ATT_READ_BLOB_REQ   0x0C
+#define ATT_READ_BLOB_RSP   0x0D
 #define ATT_WRITE_REQ       0x12
+#define ATT_WRITE_CMD       0x52
 #define ATT_WRITE_RSP       0x13
 #define ATT_NOTIFY          0x1B
 #define ATT_INDICATE        0x1D
@@ -46,6 +51,8 @@
 #define UUID_CHARACTERISTIC    0x2803
 #define UUID_CCCD              0x2902
 #define UUID_HID_REPORT        0x2A4D
+#define UUID_HID_CONTROL_POINT 0x2A4C
+#define UUID_REPORT_REFERENCE  0x2908
 
 #define MAX_REPORTS 8
 #define STEP_TIMEOUT_MS 10000
@@ -57,12 +64,13 @@ typedef enum {
     LINK_BONDING,
     LINK_DISCOVERING,
     LINK_CHARS,
+    LINK_READING,
     LINK_ENABLING,
     LINK_READY,
 } link_state_t;
 
 static const char *const link_state_names[] = {
-    "IDLE", "PAIRING", "ENCRYPTING", "BONDING", "DISCOVERING", "CHARS", "ENABLING NOTIFY", "READY",
+    "IDLE", "PAIRING", "ENCRYPTING", "BONDING", "DISCOVERING", "CHARS", "READING", "ENABLING NOTIFY", "READY",
 };
 
 static link_state_t link_state = LINK_IDLE;
@@ -98,6 +106,16 @@ static uint16_t attr_handles[MAX_ATTRS];
 static uint16_t attr_types[MAX_ATTRS];  // 16-bit type; 0xFFFF = vendor 128-bit UUID
 static int attr_count = 0;
 static int chars_seen = 0;
+
+// Values read like a HID host does before subscribing (Report Map, HID Information, report
+// references, ...): in pairing mode the controller only starts sending input after that
+#define MAX_READS 32
+static uint16_t read_handles[MAX_READS];
+static int read_count = 0;
+static int read_next = 0;
+static uint16_t read_offset = 0;
+static uint32_t bytes_read = 0;
+static uint16_t control_point_handle = 0;
 static uint16_t report_handles[MAX_REPORTS];
 static int report_count = 0;
 static uint16_t cccd_handles[MAX_REPORTS];
@@ -322,6 +340,10 @@ static void send_find_info(uint16_t start) {
 }
 
 static void start_discovery(void) {
+    read_count = 0;
+    read_next = 0;
+    bytes_read = 0;
+    control_point_handle = 0;
     attr_count = 0;
     chars_seen = 0;
     report_count = 0;
@@ -495,6 +517,8 @@ static uint16_t find_cccd(uint16_t value_handle) {
 // report and the attribute table does not reliably say which carries the gamepad state, so we
 // take them all (what ESP32 Xbox libraries do too); a CCCD that refuses 0x0001 just answers with
 // an ATT error, which enable_next_cccd() skips. Falls back to the CCCDs found from Read By Type.
+static void read_next_attribute(void);
+
 static void finish_char_discovery(void) {
     int from_table = 0;
     for (int i = 0; i < attr_count && from_table < MAX_REPORTS; i++) {
@@ -502,8 +526,49 @@ static void finish_char_discovery(void) {
     }
     if (from_table > 0) cccd_count = from_table;
     cccd_next = 0;
-    set_state(LINK_ENABLING);
-    enable_next_cccd();
+
+    // Report Reference descriptors are read too, as a HID host does
+    for (int i = 0; i < attr_count && read_count < MAX_READS; i++) {
+        if (attr_types[i] == UUID_REPORT_REFERENCE) read_handles[read_count++] = attr_handles[i];
+    }
+    read_next = 0;
+    set_state(LINK_READING);
+    read_next_attribute();
+}
+
+static void send_read(uint8_t opcode, uint16_t handle, uint16_t offset) {
+    uint8_t req[5] = { opcode, (uint8_t)(handle & 0xFF), (uint8_t)(handle >> 8),
+                       (uint8_t)(offset & 0xFF), (uint8_t)(offset >> 8) };
+    l2cap_send(L2CAP_CID_ATT, req, opcode == ATT_READ_BLOB_REQ ? 5 : 3);
+}
+
+// Read the next value in full (Read, then Read Blob while a response fills the 22-byte MTU),
+// then tell the HID service to leave suspend and subscribe to the CCCDs
+static void read_next_attribute(void) {
+    if (read_next >= read_count) {
+        if (control_point_handle != 0) {
+            uint8_t cmd[4] = { ATT_WRITE_CMD, (uint8_t)(control_point_handle & 0xFF),
+                               (uint8_t)(control_point_handle >> 8), 0x01 }; // HID Control Point: Exit Suspend
+            l2cap_send(L2CAP_CID_ATT, cmd, 4);
+        }
+        set_state(LINK_ENABLING);
+        enable_next_cccd();
+        return;
+    }
+    read_offset = 0;
+    send_read(ATT_READ_REQ, read_handles[read_next], 0);
+}
+
+static void handle_read_rsp(uint16_t len) {
+    uint16_t n = (uint16_t)(len - 1);
+    bytes_read += n;
+    if (n == 22) { // Full MTU: the value may be longer (the Report Map is a few hundred bytes)
+        read_offset = (uint16_t)(read_offset + n);
+        send_read(ATT_READ_BLOB_REQ, read_handles[read_next], read_offset);
+        return;
+    }
+    read_next++;
+    read_next_attribute();
 }
 
 // Read By Type response: entries of [declaration handle, properties, value handle, UUID]
@@ -525,6 +590,9 @@ static void handle_read_chars_rsp(const uint8_t *d, uint16_t len) {
         uint16_t uuid = (entry_len == 7) ? (uint16_t)(e[5] | (e[6] << 8)) : uuid16_from_uuid128(&e[5]);
         last_decl = decl;
         chars_seen++;
+
+        if ((props & 0x02) && read_count < MAX_READS) read_handles[read_count++] = value; // Readable
+        if (uuid == UUID_HID_CONTROL_POINT) control_point_handle = value;
 
         if (uuid == UUID_HID_REPORT && report_count < MAX_REPORTS) {
             report_handles[report_count++] = value;
@@ -559,10 +627,18 @@ static void handle_att(const uint8_t *d, uint16_t len) {
             // 0x0A Attribute Not Found: no more characteristic declarations
             if (d[4] != 0x0A) set_error("Char discovery error", d[4]);
             finish_char_discovery();
+        } else if ((d[1] == ATT_READ_REQ || d[1] == ATT_READ_BLOB_REQ) && link_state == LINK_READING) {
+            // Unreadable value, or Attribute Not Long on a blob read: move on
+            read_next++;
+            read_next_attribute();
         } else if (d[1] == ATT_WRITE_REQ && link_state == LINK_ENABLING) {
             set_error("CCCD write error", d[4]);
             enable_next_cccd();
         }
+        return;
+    case ATT_READ_RSP:
+    case ATT_READ_BLOB_RSP:
+        if (link_state == LINK_READING) handle_read_rsp(len);
         return;
     case ATT_MTU_REQ: {
         uint8_t rsp[3] = { ATT_MTU_RSP, 23, 0 }; // Keep the default MTU
@@ -746,14 +822,14 @@ void ble_host_poll(void) {
 
 const char *ble_host_status_line(void) {
     static char line[96];
-    // at = attributes recorded, e = last ATT error (request / code), ltk = pairing key received,
-    // kd = key distribution the controller accepted (initiator / responder), id = our identity sent,
-    // cccd = notifications switched on, nt = notifications of any size, rx = gamepad reports parsed
-    snprintf(line, sizeof(line), "%s|at:%d e:%02X/%02X ltk:%d kd:%X/%X id:%d cccd:%d nt:%d rx:%d %s",
+    // e = last ATT error (request / code), ltk = pairing key received, kd = key distribution the
+    // controller accepted (initiator / responder), id = our identity sent, rd = values read / to read
+    // and bytes, cccd = notifications switched on, nt = notifications of any size, rx = gamepad reports
+    snprintf(line, sizeof(line), "%s|e:%02X/%02X ltk:%d kd:%X/%X id:%d rd:%d/%d %dB cccd:%d nt:%d rx:%d %s",
              connected ? link_state_names[link_state] : "NO LINK",
-             attr_count,
              (unsigned int)last_att_error_req, (unsigned int)last_att_error_code, ltk_received ? 1 : 0,
              (unsigned int)pres[5], (unsigned int)pres[6], identity_sent ? 1 : 0,
+             read_next, read_count, (int)bytes_read,
              cccd_count, (int)notifications_received, (int)reports_received, link_error);
     return line;
 }
