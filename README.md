@@ -1,13 +1,17 @@
 # Antigravity OS
 
 <p align="center">
-  <b>A modern, freestanding x86_64 operating system built from scratch in C11.</b>
+  <b>A modern, freestanding operating system for x86_64 PCs and the Raspberry Pi 3 (AArch64), built from scratch in C11.</b>
   <br />
   Featuring preemptive multitasking, a custom ext4 filesystem engine with extent trees, pure-C <code>mkfs.ext4</code> formatter, MBR partition manager, native self-installer, ATA/AHCI storage drivers, and integrated Microsoft GW-BASIC runtime.
+  <br />
+  On the Raspberry Pi 3 it boots straight into Paratrooper with HDMI audio, played with an Xbox Wireless Controller over its own Bluetooth LE stack.
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Architecture-x86__64%20(Long%20Mode)-blue?style=flat-square" alt="x86_64" />
+  <img src="https://img.shields.io/badge/Architecture-AArch64%20(Raspberry%20Pi%203)-C51A4A?style=flat-square" alt="AArch64 Raspberry Pi 3" />
+  <img src="https://img.shields.io/badge/Bluetooth%20LE-Xbox%20Controller-107C10?style=flat-square" alt="Bluetooth LE Xbox Controller" />
   <img src="https://img.shields.io/badge/Language-C11%20Freestanding-00599C?style=flat-square" alt="C11 Freestanding" />
   <img src="https://img.shields.io/badge/Bootloader-Limine%20v2%20(BIOS%20%2B%20UEFI)-orange?style=flat-square" alt="Limine" />
   <img src="https://img.shields.io/badge/Filesystem-ext4%20(Extent%20Trees)-green?style=flat-square" alt="ext4" />
